@@ -16,9 +16,12 @@ permissions:
 jobs:
   download:
     runs-on: ubuntu-latest
+
     steps:
       - name: Depoyu Klonla
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Python Kur
         uses: actions/setup-python@v5
@@ -33,13 +36,17 @@ jobs:
 
       - name: Commit ve Push
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           git add -A -- "ülkeler" "unesco dünya mirasları" "data"
+
           if git diff --cached --quiet; then
             echo "Degisiklik yok."
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           git commit -m "UNESCO dunya mirasi verilerini guncelle"
-          git pull
-          git push
+
+          git pull --rebase origin main
+          git push origin HEAD:main
