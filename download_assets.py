@@ -29,7 +29,7 @@ ALIASES = {
 
 def clean(s):
     s = re.sub(r'[<>:"/\\|?*]', "-", str(s).strip())
-    return re.sub(r"\\s+", " ", s).strip(" .")
+    return re.sub(r"\s+", " ", s).strip(" .")
 
 def txt(node, tag):
     x = node.find(tag)
@@ -45,7 +45,7 @@ def countries(row):
                 out.append(n)
     if not out:
         raw = txt(row, "country")
-        out = [x.strip() for x in re.split(r"\\s*[,;/]\\s*", raw) if x.strip()]
+        out = [x.strip() for x in re.split(r"\s*[,;/]\s*", raw) if x.strip()]
     return out
 
 def commons(query):
