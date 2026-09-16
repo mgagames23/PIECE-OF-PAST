@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Piece of Past 7 - Kelime Gezintisi</title>
+    <style>
+        :root {
+            --bg-dark: #121921;
+            --card-bg: #1e2936;
+            --accent-gold: #f39c12;
+            --accent-gold-light: #f1c40f;
+            --text-light: #ecf0f1;
+            --text-dim: #95a5a6;
+            --box-bg: #2c3e50;
+            --box-active: #27ae60;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-light);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            overflow-x: hidden;
+        }
+
+        #app {
+            width: 100%;
+            max-width: 480px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            background: linear-gradient(180deg, #1a252f 0%, #111820 100%);
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+
+        /* HEADER */
+        header {
+            padding: 12px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(0,0,0,0.3);
+            backdrop-filter: blur(5px);
+            z-index: 10;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .btn-icon {
+            background: var(--card-bg);
+            border: 1px solid var(--accent-gold);
+            color: var(--accent-gold);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .header-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: var(--accent-gold-light);
+            text-align: center;
+        }
+
+        /* SCREENS */
+        .screen {
+            flex: 1;
+            display: none;
+            flex-direction: column;
+            padding: 16px;
+            overflow-y: auto;
+        }
+
+        .screen.active {
+            display: flex;
+        }
+
+        /* 1. ILLER LISTESI */
+        .level-tabs {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 12px;
+            overflow-x: auto;
+            padding-bottom: 6px;
+        }
+
+        .tab-btn {
+            background: var(--card-bg);
+            border: none;
+            color: var(--text-dim);
+            padding: 8px 14px;
+            border-radius: 12px;
+            font-weight: bold;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+
+        .tab-btn.active {
+            background: var(--accent-gold);
+            color: #000;
+        }
+
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+            cursor: pointer;
+            border: 1px solid rgba(255,255,255,0.05);
+            transition: transform 0.2s;
+        }
+
+        .card:active {
+            transform: scale(0.97);
+        }
+
+        .card-img {
+            width: 100%;
+            height: 110px;
+            object-fit: cover;
+            background: #2c3e50;
+        }
+
+        .card-info {
+            padding: 8px 10px;
+            text-align: center;
+        }
+
+        .card-title {
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .card-badge {
+            font-size: 11px;
+            color: var(--accent-gold);
+            margin-top: 2px;
+        }
+
+        /* 2. OYUN EKRANI */
+        #game-screen {
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+        }
+
+        /* PUZZLE GRID */
+        #puzzle-board {
+            flex: 1;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            min-height: 200px;
+        }
+
+        .grid-matrix {
+            position: relative;
+        }
+
+        .grid-cell {
+            position: absolute;
+            width: 38px;
+            height: 38px;
+            background: var(--box-bg);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: bold;
+            color: transparent;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.3);
+            transition: all 0.3s ease;
+        }
+
+        .grid-cell.revealed {
+            background: var(--box-active);
+            color: #fff;
+            transform: scale(1.05);
+        }
+
+        /* WORD WHEEL CANVAS */
+        .wheel-container {
+            position: relative;
+            width: 260px;
+            height: 260px;
+            margin-bottom: 20px;
+        }
+
+        #wheel-canvas {
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+
+        .word-preview {
+            height: 32px;
+            font-size: 20px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            color: var(--accent-gold-light);
+            text-align: center;
+            margin-bottom: 10px;
+        }
+
+        /* MODAL */
+        .modal {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.85);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal h2 {
+            color: var(--accent-gold-light);
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .modal p {
+            margin-bottom: 20px;
+            color: var(--text-light);
+        }
+
+        .btn-main {
+            background: var(--accent-gold);
+            color: #000;
+            border: none;
+            padding: 12px 28px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 25px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <header>
+        <button id="btn-back" class="btn-icon" onclick="showScreen('screen-provinces')">← İller</button>
+        <div id="header-title" class="header-title">Piece of Past 7</div>
+        <button class="btn-icon" onclick="useHint()">💡 İpucu</button>
+    </header>
+
+    <!-- 1. İLLER EKRANI -->
+    <div id="screen-provinces" class="screen active">
+        <div class="level-tabs">
+            <button class="tab-btn active" onclick="filterLevel(1)">Seviye 1</button>
+            <button class="tab-btn" onclick="filterLevel(2)">Seviye 2</button>
+            <button class="tab-btn" onclick="filterLevel(3)">Seviye 3</button>
+            <button class="tab-btn" onclick="filterLevel(4)">Seviye 4</button>
+            <button class="tab-btn" onclick="filterLevel(5)">Seviye 5</button>
+        </div>
+        <div id="provinces-grid" class="grid-container"></div>
+    </div>
+
+    <!-- 2. TARİHİ ESER SEÇİM EKRANI -->
+    <div id="screen-sites" class="screen">
+        <div id="sites-grid" class="grid-container"></div>
+    </div>
+
+    <!-- 3. OYUN EKRANI -->
+    <div id="game-screen" class="screen">
+        <div class="word-preview" id="word-preview"></div>
+        <div id="puzzle-board">
+            <div id="grid-matrix" class="grid-matrix"></div>
+        </div>
+        <div class="wheel-container">
+            <canvas id="wheel-canvas" width="260" height="260"></canvas>
+        </div>
+    </div>
+
+    <!-- TEBRİKLER MODALI -->
+    <div id="modal-success" class="modal">
+        <h2 id="modal-title">Tebrikler!</h2>
+        <p id="modal-desc">Bölümü başarıyla tamamladınız.</p>
+        <button class="btn-main" onclick="nextLevel()">Devam Et</button>
+    </div>
+</div>
+
+<script>
+    // SES EFEKTLERİ (Web Audio API Synthesizer)
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playTone(freq, duration) {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+    }
+
+    // ÖRNEK VERİ SETİ
+    const GAME_DATA = {
+        "Adana": [
+            {
+                name: "Anavarza Antik Kenti",
+                letters: ["K", "A", "N", "A", "T"],
+                words: [
+                    { word: "KANAT", x: 0, y: 0, dir: "H" },
+                    { word: "TANK", x: 0, y: 0, dir: "V" },
+                    { word: "KANA", x: 0, y: 3, dir: "H" },
+                    { word: "TAK", x: 4, y: 0, dir: "V" }
+                ]
+            },
+            {
+                name: "Karatepe-Aslantaş",
+                letters: ["K", "A", "L", "E"],
+                words: [
+                    { word: "KALE", x: 0, y: 0, dir: "H" },
+                    { word: "LAK", x: 2, y: 0, dir: "V" },
+                    { word: "ELA", x: 0, y: 2, dir: "H" }
+                ]
+            }
+        ],
+        "Adıyaman": [
+            {
+                name: "Nemrut Dağı",
+                letters: ["M", "E", "Z", "A", "R"],
+                words: [
+                    { word: "MEZAR", x: 0, y: 0, dir: "H" },
+                    { word: "MERA", x: 0, y: 0, dir: "V" },
+                    { word: "ARZ", x: 3, y: 0, dir: "V" }
+                ]
+            }
+        ]
+    };
+
+    const PROVINCE_LEVELS = {
+        1: ["Ardahan", "Bingöl", "Tekirdağ", "Tunceli", "Yalova", "Şırnak", "Ağrı", "Bartın"],
+        2: ["Kırşehir", "Muş", "Ordu", "Osmaniye", "Rize", "Sakarya", "Samsun", "Siirt"],
+        3: ["Isparta", "Kahramanmaraş", "Kastamonu", "Kocaeli", "Malatya", "Adıyaman", "Amasya"],
+        4: ["Kütahya", "Niğde", "Sivas", "Tokat", "Van", "Çorum", "Adana", "Afyonkarahisar"],
+        5: ["Diyarbakır", "Hatay", "Şanlıurfa", "Ankara", "Aydın", "Mardin", "Nevşehir", "İstanbul"]
+    };
+
+    let currentProv = "Adana";
+    let currentSiteIdx = 0;
+    let currentLevelData = null;
+    let revealedWords = new Set();
+    let userProgress = JSON.parse(localStorage.getItem('pop7_prog') || '{}');
+
+    // SAYFA YÖNETİMİ
+    function showScreen(screenId) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(screenId).classList.add('active');
+        document.getElementById('btn-back').style.display = screenId === 'screen-provinces' ? 'none' : 'block';
+    }
+
+    function filterLevel(lvl) {
+        document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', i === lvl - 1));
+        const grid = document.getElementById('provinces-grid');
+        grid.innerHTML = '';
+        
+        const provs = PROVINCE_LEVELS[lvl] || [];
+        provs.forEach(prov => {
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.onclick = () => selectProvince(prov);
+            card.innerHTML = `
+                <img class="card-img" src="iller/${prov}.png" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\'><rect width=\'100%\' height=\'100%\' fill=\'%232c3e50\'/><text x=\'50%\' y=\'50%\' fill=\'%23fff\' text-anchor=\'middle\'>${prov}</text></svg>'">
+                <div class="card-info">
+                    <div class="card-title">${prov}</div>
+                    <div class="card-badge">${userProgress[prov] ? 'Tamamlandı ✓' : 'Keşfet'}</div>
+                </div>
+            `;
+            grid.appendChild(card);
+        });
+    }
+
+    function selectProvince(prov) {
+        currentProv = prov;
+        document.getElementById('header-title').innerText = prov;
+        const grid = document.getElementById('sites-grid');
+        grid.innerHTML = '';
+
+        const sites = GAME_DATA[prov] || [
+            { name: prov + " Tarihi Alanı", letters: ["T", "A", "R", "İ", "H"], words: [{ word: "TARİH", x: 0, y: 0, dir: "H" }] }
+        ];
+
+        sites.forEach((site, idx) => {
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.onclick = () => startPuzzle(idx);
+            card.innerHTML = `
+                <img class="card-img" src="tarihieserler/${site.name}.png" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\'><rect width=\'100%\' height=\'100%\' fill=\'%2334495e\'/><text x=\'50%\' y=\'50%\' fill=\'%23f1c40f\' text-anchor=\'middle\'>${site.name}</text></svg>'">
+                <div class="card-info">
+                    <div class="card-title">${site.name}</div>
+                </div>
+            `;
+            grid.appendChild(card);
+        });
+        showScreen('screen-sites');
+    }
+
+    function startPuzzle(siteIdx) {
+        currentSiteIdx = siteIdx;
+        const sites = GAME_DATA[currentProv] || [
+            { name: currentProv + " Tarihi Alanı", letters: ["T", "A", "R", "İ", "H"], words: [{ word: "TARİH", x: 0, y: 0, dir: "H" }] }
+        ];
+        currentLevelData = sites[siteIdx];
+        revealedWords.clear();
+        
+        document.getElementById('header-title').innerText = currentLevelData.name;
+        renderGrid();
+        initWheel();
+        showScreen('game-screen');
+    }
+
+    // PUZZLE GRID ENGINE
+    function renderGrid() {
+        const matrixEl = document.getElementById('grid-matrix');
+        matrixEl.innerHTML = '';
+        
+        let maxX = 0, maxY = 0;
+        currentLevelData.words.forEach(w => {
+            const len = w.word.length;
+            if (w.dir === 'H') {
+                maxX = Math.max(maxX, w.x + len);
+                maxY = Math.max(maxY, w.y + 1);
+            } else {
+                maxX = Math.max(maxX, w.x + 1);
+                maxY = Math.max(maxY, w.y + len);
+            }
+        });
+
+        const cellSize = 42;
+        matrixEl.style.width = (maxX * cellSize) + 'px';
+        matrixEl.style.height = (maxY * cellSize) + 'px';
+
+        currentLevelData.words.forEach(w => {
+            for (let i = 0; i < w.word.length; i++) {
+                const cx = w.dir === 'H' ? w.x + i : w.x;
+                const cy = w.dir === 'V' ? w.y + i : w.y;
+                const cellId = `cell-${cx}-${cy}`;
+                
+                let cell = document.getElementById(cellId);
+                if (!cell) {
+                    cell = document.createElement('div');
+                    cell.id = cellId;
+                    cell.className = 'grid-cell';
+                    cell.style.left = (cx * cellSize) + 'px';
+                    cell.style.top = (cy * cellSize) + 'px';
+                    cell.innerText = w.word[i];
+                    matrixEl.appendChild(cell);
+                }
+            }
+        });
+    }
+
+    // HARF ÇEMBERİ & TOUCH CANVAS ENGINE
+    let canvas, ctx;
+    let nodePos = [];
+    let selectedNodes = [];
+    let isDragging = false;
+
+    function initWheel() {
+        canvas = document.getElementById('wheel-canvas');
+        ctx = canvas.getContext('2d');
+        
+        const letters = currentLevelData.letters;
+        const total = letters.length;
+        const radius = 90;
+        const center = 130;
+        nodePos = [];
+
+        for (let i = 0; i < total; i++) {
+            const angle = (i * 2 * Math.PI / total) - Math.PI / 2;
+            nodePos.push({
+                x: center + radius * Math.cos(angle),
+                y: center + radius * Math.sin(angle),
+                letter: letters[i]
+            });
+        }
+        drawWheel();
+        
+        canvas.onmousedown = canvas.ontouchstart = handleStart;
+        canvas.onmousemove = canvas.ontouchmove = handleMove;
+        canvas.onmouseup = canvas.ontouchend = handleEnd;
+    }
+
+    function drawWheel(currentMousePos = null) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Çizgi Çizimi
+        if (selectedNodes.length > 0) {
+            ctx.beginPath();
+            ctx.strokeStyle = '#f1c40f';
+            ctx.lineWidth = 6;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            const first = nodePos[selectedNodes[0]];
+            ctx.moveTo(first.x, first.y);
+
+            for (let i = 1; i < selectedNodes.length; i++) {
+                const p = nodePos[selectedNodes[i]];
+                ctx.lineTo(p.x, p.y);
+            }
+
+            if (currentMousePos) {
+                ctx.lineTo(currentMousePos.x, currentMousePos.y);
+            }
+            ctx.stroke();
+        }
+
+        // Düğümler
+        nodePos.forEach((node, i) => {
+            const isSelected = selectedNodes.includes(i);
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, 26, 0, Math.PI * 2);
+            ctx.fillStyle = isSelected ? '#f39c12' : '#2c3e50';
+            ctx.fill();
+            ctx.strokeStyle = '#f1c40f';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.font = 'bold 20px Segoe UI';
+            ctx.fillStyle = isSelected ? '#000' : '#fff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(node.letter, node.x, node.y);
+        });
+    }
+
+    function getPos(e) {
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        return {
+            x: (clientX - rect.left) * (canvas.width / rect.width),
+            y: (clientY - rect.top) * (canvas.height / rect.height)
+        };
+    }
+
+    function handleStart(e) {
+        e.preventDefault();
+        isDragging = true;
+        selectedNodes = [];
+        const pos = getPos(e);
+        checkNodeCollision(pos);
+    }
+
+    function handleMove(e) {
+        if (!isDragging) return;
+        e.preventDefault();
+        const pos = getPos(e);
+        checkNodeCollision(pos);
+        drawWheel(pos);
+        
+        const currentWord = selectedNodes.map(i => nodePos[i].letter).join('');
+        document.getElementById('word-preview').innerText = currentWord;
+    }
+
+    function handleEnd() {
+        if (!isDragging) return;
+        isDragging = false;
+        
+        const formedWord = selectedNodes.map(i => nodePos[i].letter).join('');
+        validateWord(formedWord);
+
+        selectedNodes = [];
+        document.getElementById('word-preview').innerText = '';
+        drawWheel();
+    }
+
+    function checkNodeCollision(pos) {
+        nodePos.forEach((node, i) => {
+            const dist = Math.hypot(node.x - pos.x, node.y - pos.y);
+            if (dist < 26 && !selectedNodes.includes(i)) {
+                selectedNodes.push(i);
+                playTone(300 + selectedNodes.length * 80, 0.1);
+            }
+        });
+    }
+
+    function validateWord(word) {
+        let matchFound = false;
+        currentLevelData.words.forEach(w => {
+            if (w.word === word && !revealedWords.has(word)) {
+                revealedWords.add(word);
+                matchFound = true;
+                playTone(600, 0.2);
+
+                for (let i = 0; i < w.word.length; i++) {
+                    const cx = w.dir === 'H' ? w.x + i : w.x;
+                    const cy = w.dir === 'V' ? w.y + i : w.y;
+                    const cell = document.getElementById(`cell-${cx}-${cy}`);
+                    if (cell) cell.classList.add('revealed');
+                }
+            }
+        });
+
+        if (revealedWords.size === currentLevelData.words.length) {
+            setTimeout(showVictory, 500);
+        }
+    }
+
+    function useHint() {
+        currentLevelData.words.forEach(w => {
+            if (!revealedWords.has(w.word)) {
+                validateWord(w.word);
+            }
+        });
+    }
+
+    function showVictory() {
+        playTone(800, 0.4);
+        userProgress[currentProv] = true;
+        localStorage.setItem('pop7_prog', JSON.stringify(userProgress));
+
+        document.getElementById('modal-title').innerText = "Tebrikler!";
+        document.getElementById('modal-desc').innerText = `${currentLevelData.name} bölümünü başarıyla tamamladınız.`;
+        document.getElementById('modal-success').classList.add('active');
+    }
+
+    function nextLevel() {
+        document.getElementById('modal-success').classList.remove('active');
+        showScreen('screen-sites');
+    }
+
+    // İLK YÜKLEME
+    filterLevel(1);
+</script>
+</body>
+</html>
+
