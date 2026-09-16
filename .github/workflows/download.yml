@@ -31,6 +31,11 @@ jobs:
       - name: Kutuphaneleri Yukle
         run: pip install requests pillow
 
+      - name: Guncel Main Dalini Al
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+
       - name: UNESCO Verilerini ve Gorselleri Indir
         run: python download_assets.py
 
@@ -48,5 +53,4 @@ jobs:
 
           git commit -m "UNESCO dunya mirasi verilerini guncelle"
 
-          git pull --rebase origin main
           git push origin HEAD:main
