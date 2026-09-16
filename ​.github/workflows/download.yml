@@ -1,10 +1,12 @@
 name: Gorselleri Otomatik Indir
 
 on:
-  workflow_dispatch: # Manuel çalıştırma butonu ekler
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
 
 permissions:
-  contents: write # Repoya yeni klasör ve dosya yazma izni
+  contents: write
 
 jobs:
   download:
