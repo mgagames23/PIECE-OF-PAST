@@ -13,6 +13,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: unesco-download
+  cancel-in-progress: false
+
 jobs:
   download:
     runs-on: ubuntu-latest
@@ -52,5 +56,25 @@ jobs:
           fi
 
           git commit -m "UNESCO dunya mirasi verilerini guncelle"
+
+          git fetch origin main
+
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "Main dalinda yeni degisiklik bulundu."
+            echo "UNESCO verileri guncel main uzerinde yeniden olusturulacak."
+
+            git reset --hard origin/main
+
+            python download_assets.py
+
+            git add -A -- "ülkeler" "unesco dünya mirasları" "data"
+
+            if git diff --cached --quiet; then
+              echo "Yeniden indirme sonrasi degisiklik yok."
+              exit 0
+            fi
+
+            git commit -m "UNESCO dunya mirasi verilerini guncelle"
+          fi
 
           git push origin HEAD:main
