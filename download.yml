@@ -1,0 +1,44 @@
+name: UNESCO Gorsellerini Otomatik Indir
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "download_assets.py"
+      - ".github/workflows/download.yml"
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 1 * *"
+
+permissions:
+  contents: write
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Depoyu Klonla
+        uses: actions/checkout@v4
+
+      - name: Python Kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Kutuphaneleri Yukle
+        run: pip install requests pillow
+
+      - name: UNESCO Verilerini ve Gorselleri Indir
+        run: python download_assets.py
+
+      - name: Commit ve Push
+        run: |
+          git add -A -- "ülkeler" "unesco dünya mirasları" "data"
+          if git diff --cached --quiet; then
+            echo "Degisiklik yok."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "UNESCO dunya mirasi verilerini guncelle"
+          git push
