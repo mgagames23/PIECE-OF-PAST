@@ -760,27 +760,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-Sonra ne yapacaksın?
-
-1. GitHub'da "download_assets.py" dosyasını bununla değiştir.
-2. Commit et.
-3. Actions → UNESCO Gorsellerini Otomatik Indir → Run workflow ile çalıştır.
-4. Logda artık ilk olarak şunları görmeliyiz:
-
-UNESCO World Heritage List indiriliyor...
-UNESCO HTTP durumu: 200
-UNESCO XML boyutu: ...
-XML kayitlari: ...
-UNESCO alanlari: ...
-Ulkeler: ...
-
-En önemli fark şu: "UNESCO alanlari: 0" olursa workflow artık başarılı görünmeyecek. Bilerek "RuntimeError" verecek. Böylece boş "data/unesco.json" üretip GitHub'a göndermeyecek.
-
-UNESCO'nun kendi sitesinde World Heritage List'in XML dahil çeşitli formatlarda sunulduğu doğrulanıyor.
-
-Bir de önemli not: UNESCO'nun sendikasyon şartları, verinin yeniden yayımlanması için kullanım koşulları ve uygun UNESCO/WHC bağlantı-atıf gereklilikleri içeriyor. Uygulaman içinde UNESCO verisini kullanacaksan bu koşulları ayrıca dikkate almak gerekir.
-
-Bu dosyayı koyduktan sonra Actions logunun ilk 10-15 satırını bana gönder. Özellikle "XML kayitlari", "UNESCO alanlari" ve "Ulkeler" sayılarını göreyim; oradan bir sonraki sorunu doğrudan tespit ederiz.
