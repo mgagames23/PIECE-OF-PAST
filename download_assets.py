@@ -1,8 +1,9 @@
 import io
 import json
 import re
+import sys
+import time
 import xml.etree.ElementTree as ET
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -28,13 +29,23 @@ UA = (
     "(https://github.com/mgagames23/PIECE-OF-PAST)"
 )
 
-# Aynı anda kaç görsel indirilecek?
-# 8 güvenli ve yeterince hızlı bir değerdir.
-MAX_WORKERS = 8
+REQUEST_TIMEOUT = 30
+IMAGE_TIMEOUT = 60
 
-# HTTP timeout
-REQUEST_TIMEOUT = 25
-IMAGE_TIMEOUT = 40
+# Wikimedia API'ye iki istek arasında minimum bekleme.
+# Paralel istek YOK.
+API_DELAY = 1.0
+
+# 429 / 503 / maxlag durumunda en fazla kaç kez denenecek.
+MAX_RETRIES = 6
+
+# UNESCO parçaları
+PART_RANGES = {
+    "unesco-1": (0, 424),
+    "unesco-2": (424, 848),
+    "unesco-3": (848, 1273),
+}
+
 
 # ============================================================
 # ÜLKE İSİM ALIAŞLARI
@@ -83,14 +94,47 @@ ALIASES = {
     "Cabo Verde": "Cape Verde",
 
     "Eswatini": "Eswatini",
+
+    "Türkiye": "Turkey",
 }
 
 
 # ============================================================
-# GENEL YARDIMCI FONKSİYONLAR
+# HTTP SESSION
+# ============================================================
+
+SESSION = requests.Session()
+
+SESSION.headers.update({
+    "User-Agent": UA,
+    "Accept-Encoding": "gzip",
+})
+
+
+_last_api_request = 0.0
+
+
+def wait_before_api():
+    global _last_api_request
+
+    now = time.monotonic()
+
+    elapsed = now - _last_api_request
+
+    if elapsed < API_DELAY:
+        time.sleep(
+            API_DELAY - elapsed
+        )
+
+    _last_api_request = time.monotonic()
+
+
+# ============================================================
+# GENEL YARDIMCILAR
 # ============================================================
 
 def clean(value):
+
     value = re.sub(
         r'[<>:"/\\|?*]',
         "-",
@@ -107,26 +151,27 @@ def clean(value):
 
 
 def local_name(tag):
-    """
-    XML namespace bilgisini kaldırır.
-
-    Örnek:
-    {namespace}row -> row
-    """
 
     if not tag:
         return ""
 
     if "}" in tag:
-        tag = tag.split("}", 1)[1]
+        tag = tag.split(
+            "}",
+            1
+        )[1]
 
     if ":" in tag:
-        tag = tag.split(":", 1)[1]
+        tag = tag.split(
+            ":",
+            1
+        )[1]
 
     return tag.strip().lower()
 
 
 def text_value(node):
+
     if node is None:
         return ""
 
@@ -144,6 +189,7 @@ def text_value(node):
 
 
 def child_text(node, *names):
+
     wanted = {
         str(x).strip().lower()
         for x in names
@@ -171,7 +217,7 @@ def child_text(node, *names):
 
 
 # ============================================================
-# UNESCO XML
+# UNESCO XML PARSER
 # ============================================================
 
 def find_site_name(row):
@@ -281,7 +327,6 @@ def countries(row):
             ):
                 result.append(part)
 
-    # UNESCO'nun state yapısı
     for element in row.iter():
 
         name = local_name(
@@ -303,7 +348,6 @@ def countries(row):
             if value:
                 add(value)
 
-    # Alternatif alanlar
     if not result:
 
         value = child_text(
@@ -318,7 +362,6 @@ def countries(row):
 
         add(value)
 
-    # Attribute
     if not result:
 
         for key, value in row.attrib.items():
@@ -383,8 +426,7 @@ def parse_unesco_xml(content):
     if not rows:
 
         raise RuntimeError(
-            "UNESCO XML icinde veri "
-            "kaydi bulunamadi."
+            "UNESCO XML icinde veri kaydi bulunamadi."
         )
 
     return rows
@@ -392,28 +434,24 @@ def parse_unesco_xml(content):
 
 def download_unesco():
 
+    print("")
     print(
         "UNESCO World Heritage List indiriliyor..."
     )
 
-    response = requests.get(
+    response = SESSION.get(
         UNESCO_XML,
-        headers={
-            "User-Agent": UA
-        },
         timeout=60,
     )
 
     response.raise_for_status()
 
     print(
-        f"UNESCO HTTP: "
-        f"{response.status_code}"
+        f"UNESCO HTTP: {response.status_code}"
     )
 
     print(
-        f"XML boyutu: "
-        f"{len(response.content):,} byte"
+        f"XML boyutu: {len(response.content):,} byte"
     )
 
     rows = parse_unesco_xml(
@@ -421,8 +459,7 @@ def download_unesco():
     )
 
     print(
-        f"XML kayitlari: "
-        f"{len(rows)}"
+        f"XML kayitlari: {len(rows)}"
     )
 
     sites = []
@@ -477,204 +514,455 @@ def download_unesco():
     if not sites:
 
         raise RuntimeError(
-            "UNESCO alanlari 0. "
-            "Veri okunamadi."
+            "UNESCO alanlari 0. Veri okunamadi."
         )
 
     if not all_countries:
 
         raise RuntimeError(
-            "Ulke sayisi 0. "
-            "Veri okunamadi."
+            "Ulke sayisi 0. Veri okunamadi."
         )
 
     print(
-        f"UNESCO alanlari: "
-        f"{len(sites)}"
+        f"UNESCO alanlari: {len(sites)}"
     )
 
     print(
-        f"Ulkeler: "
-        f"{len(all_countries)}"
+        f"Ulkeler: {len(all_countries)}"
     )
 
     return sites, all_countries
 
 
 # ============================================================
-# COMMONS
+# DOSYA / JSON YARDIMCILARI
 # ============================================================
 
-def commons(query):
+def load_json(path, default):
+
+    if not path.exists():
+        return default
 
     try:
 
-        response = requests.get(
-            COMMONS_API,
-            params={
-                "action": "query",
-                "generator": "search",
-                "gsrsearch": query,
-                "gsrnamespace": 6,
-                "gsrlimit": 5,
-                "prop": "imageinfo",
-                "iiprop": (
-                    "url|mime|extmetadata"
-                ),
-                "iiurlwidth": 800,
-                "format": "json",
-            },
-            headers={
-                "User-Agent": UA
-            },
-            timeout=REQUEST_TIMEOUT,
+        return json.loads(
+            path.read_text(
+                encoding="utf-8"
+            )
         )
-
-        response.raise_for_status()
-
-        pages = (
-            response
-            .json()
-            .get("query", {})
-            .get("pages", {})
-        )
-
-        for page in pages.values():
-
-            imageinfo = page.get(
-                "imageinfo",
-                []
-            )
-
-            if not imageinfo:
-                continue
-
-            info = imageinfo[0]
-
-            mime = info.get(
-                "mime",
-                ""
-            )
-
-            if mime not in (
-                "image/jpeg",
-                "image/png",
-                "image/webp",
-            ):
-                continue
-
-            metadata = info.get(
-                "extmetadata",
-                {}
-            )
-
-            return {
-                "url": (
-                    info.get("thumburl")
-                    or info.get("url")
-                ),
-                "title": page.get(
-                    "title",
-                    ""
-                ),
-                "license": (
-                    metadata
-                    .get(
-                        "LicenseShortName",
-                        {}
-                    )
-                    .get(
-                        "value",
-                        ""
-                    )
-                ),
-                "artist": (
-                    metadata
-                    .get(
-                        "Artist",
-                        {}
-                    )
-                    .get(
-                        "value",
-                        ""
-                    )
-                ),
-            }
 
     except Exception as exc:
 
         print(
-            f"Commons hata: {query}"
+            f"JSON okunamadi: {path}"
         )
 
         print(
             f"  {exc}"
         )
 
+        return default
+
+
+def load_existing_sources():
+
+    return load_json(
+        DATA_DIR / "image_sources.json",
+        {}
+    )
+
+
+# ============================================================
+# COMMONS API
+# ============================================================
+
+def commons_request(query):
+
+    global _last_api_request
+
+    for attempt in range(
+        1,
+        MAX_RETRIES + 1
+    ):
+
+        wait_before_api()
+
+        try:
+
+            response = SESSION.get(
+                COMMONS_API,
+                params={
+                    "action": "query",
+                    "generator": "search",
+                    "gsrsearch": query,
+                    "gsrnamespace": 6,
+                    "gsrlimit": 5,
+                    "prop": "imageinfo",
+                    "iiprop": (
+                        "url|mime|extmetadata"
+                    ),
+                    "iiurlwidth": 800,
+                    "maxlag": 5,
+                    "format": "json",
+                },
+                timeout=REQUEST_TIMEOUT,
+            )
+
+            if response.status_code in (
+                429,
+                503,
+            ):
+
+                retry_after = response.headers.get(
+                    "Retry-After"
+                )
+
+                if retry_after:
+
+                    try:
+                        delay = max(
+                            5,
+                            int(float(retry_after))
+                        )
+
+                    except ValueError:
+
+                        delay = min(
+                            60,
+                            5 * attempt
+                        )
+
+                else:
+
+                    delay = min(
+                        120,
+                        5 * (2 ** (attempt - 1))
+                    )
+
+                print("")
+                print(
+                    f"Commons {response.status_code}: "
+                    f"{query}"
+                )
+
+                print(
+                    f"Bekleniyor: {delay} saniye"
+                )
+
+                time.sleep(
+                    delay
+                )
+
+                continue
+
+            response.raise_for_status()
+
+            data = response.json()
+
+            error = data.get(
+                "error"
+            )
+
+            if error:
+
+                code = error.get(
+                    "code",
+                    ""
+                )
+
+                if code in (
+                    "maxlag",
+                    "ratelimited",
+                ):
+
+                    delay = min(
+                        120,
+                        5 * (2 ** (attempt - 1))
+                    )
+
+                    print("")
+                    print(
+                        f"Commons API {code}: "
+                        f"{query}"
+                    )
+
+                    print(
+                        f"Bekleniyor: {delay} saniye"
+                    )
+
+                    time.sleep(
+                        delay
+                    )
+
+                    continue
+
+                return None
+
+            pages = (
+                data
+                .get("query", {})
+                .get("pages", {})
+            )
+
+            for page in pages.values():
+
+                imageinfo = page.get(
+                    "imageinfo",
+                    []
+                )
+
+                if not imageinfo:
+                    continue
+
+                info = imageinfo[0]
+
+                mime = info.get(
+                    "mime",
+                    ""
+                )
+
+                if mime not in (
+                    "image/jpeg",
+                    "image/png",
+                    "image/webp",
+                ):
+                    continue
+
+                url = (
+                    info.get("thumburl")
+                    or info.get("url")
+                )
+
+                if not url:
+                    continue
+
+                metadata = info.get(
+                    "extmetadata",
+                    {}
+                )
+
+                return {
+                    "url": url,
+                    "title": page.get(
+                        "title",
+                        ""
+                    ),
+                    "license": (
+                        metadata
+                        .get(
+                            "LicenseShortName",
+                            {}
+                        )
+                        .get(
+                            "value",
+                            ""
+                        )
+                    ),
+                    "artist": (
+                        metadata
+                        .get(
+                            "Artist",
+                            {}
+                        )
+                        .get(
+                            "value",
+                            ""
+                        )
+                    ),
+                }
+
+            return None
+
+        except requests.RequestException as exc:
+
+            if attempt >= MAX_RETRIES:
+
+                print("")
+                print(
+                    f"Commons hata: {query}"
+                )
+
+                print(
+                    f"  {exc}"
+                )
+
+                return None
+
+            delay = min(
+                120,
+                5 * (2 ** (attempt - 1))
+            )
+
+            print("")
+            print(
+                f"Commons baglanti hatasi: "
+                f"{query}"
+            )
+
+            print(
+                f"  {exc}"
+            )
+
+            print(
+                f"Tekrar denenecek: "
+                f"{delay} saniye"
+            )
+
+            time.sleep(
+                delay
+            )
+
+        except Exception as exc:
+
+            print("")
+            print(
+                f"Commons hata: {query}"
+            )
+
+            print(
+                f"  {exc}"
+            )
+
+            return None
+
     return None
 
 
+def commons_search(queries):
+
+    for query in queries:
+
+        if not query:
+            continue
+
+        info = commons_request(
+            query
+        )
+
+        if info:
+            return info
+
+    return None
+
+
+# ============================================================
+# GÖRSEL KAYDETME
+# ============================================================
+
 def save_jpg(url, path):
 
-    response = requests.get(
-        url,
-        headers={
-            "User-Agent": UA
-        },
-        timeout=IMAGE_TIMEOUT,
-    )
+    for attempt in range(
+        1,
+        4
+    ):
 
-    response.raise_for_status()
+        try:
 
-    image = ImageOps.exif_transpose(
-        Image.open(
-            io.BytesIO(
-                response.content
-            )
-        )
-    )
-
-    if image.mode != "RGB":
-
-        background = Image.new(
-            "RGB",
-            image.size,
-            "white"
-        )
-
-        if "A" in image.getbands():
-
-            background.paste(
-                image,
-                mask=image.getchannel(
-                    "A"
-                ),
+            response = SESSION.get(
+                url,
+                timeout=IMAGE_TIMEOUT,
             )
 
-        else:
+            if response.status_code in (
+                429,
+                503,
+            ):
 
-            background.paste(
-                image
+                retry_after = response.headers.get(
+                    "Retry-After"
+                )
+
+                try:
+                    delay = max(
+                        5,
+                        int(float(retry_after))
+                    ) if retry_after else 10
+
+                except ValueError:
+
+                    delay = 10
+
+                print(
+                    f"  Görsel {response.status_code}, "
+                    f"{delay} sn bekleniyor..."
+                )
+
+                time.sleep(
+                    delay
+                )
+
+                continue
+
+            response.raise_for_status()
+
+            image = ImageOps.exif_transpose(
+                Image.open(
+                    io.BytesIO(
+                        response.content
+                    )
+                )
             )
 
-        image = background
+            if image.mode != "RGB":
 
-    image.thumbnail(
-        (800, 800),
-        Image.Resampling.LANCZOS
-    )
+                background = Image.new(
+                    "RGB",
+                    image.size,
+                    "white"
+                )
 
-    path.parent.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+                if "A" in image.getbands():
 
-    image.save(
-        path,
-        "JPEG",
-        quality=78,
-        optimize=True
-    )
+                    background.paste(
+                        image,
+                        mask=image.getchannel(
+                            "A"
+                        ),
+                    )
+
+                else:
+
+                    background.paste(
+                        image
+                    )
+
+                image = background
+
+            image.thumbnail(
+                (800, 800),
+                Image.Resampling.LANCZOS
+            )
+
+            path.parent.mkdir(
+                parents=True,
+                exist_ok=True
+            )
+
+            image.save(
+                path,
+                "JPEG",
+                quality=78,
+                optimize=True
+            )
+
+            return True
+
+        except Exception as exc:
+
+            if attempt >= 3:
+
+                print(
+                    f"  Görsel indirilemedi: "
+                    f"{exc}"
+                )
+
+                return False
+
+            time.sleep(
+                3 * attempt
+            )
+
+    return False
 
 
 # ============================================================
@@ -704,40 +992,16 @@ def country_task(country):
         country
     )
 
-    info = commons(
-        f"{search_name} flag"
+    queries = [
+        f"{search_name} flag",
+        f"flag of {search_name}",
+    ]
+
+    info = commons_search(
+        queries
     )
 
     if not info:
-        return {
-            "country": country,
-            "path": None,
-            "source": None,
-            "existing": False,
-        }
-
-    try:
-
-        save_jpg(
-            info["url"],
-            path
-        )
-
-        return {
-            "country": country,
-            "path": str(
-                path.relative_to(ROOT)
-            ).replace("\\", "/"),
-            "source": info,
-            "existing": False,
-        }
-
-    except Exception as exc:
-
-        print(
-            f"  Bayrak indirilemedi: "
-            f"{country} - {exc}"
-        )
 
         return {
             "country": country,
@@ -745,6 +1009,27 @@ def country_task(country):
             "source": None,
             "existing": False,
         }
+
+    if not save_jpg(
+        info["url"],
+        path
+    ):
+
+        return {
+            "country": country,
+            "path": None,
+            "source": None,
+            "existing": False,
+        }
+
+    return {
+        "country": country,
+        "path": str(
+            path.relative_to(ROOT)
+        ).replace("\\", "/"),
+        "source": info,
+        "existing": False,
+    }
 
 
 def download_country_images(
@@ -753,98 +1038,64 @@ def download_country_images(
 
     print("")
     print(
-        "Ulke gorselleri indiriliyor..."
+        "======================================"
     )
 
-    results = []
+    print(
+        "ULKE GORSELLERI"
+    )
 
-    with ThreadPoolExecutor(
-        max_workers=MAX_WORKERS
-    ) as executor:
-
-        futures = {
-            executor.submit(
-                country_task,
-                country
-            ): country
-            for country in all_countries
-        }
-
-        total = len(futures)
-
-        completed = 0
-
-        for future in as_completed(
-            futures
-        ):
-
-            completed += 1
-
-            country = futures[
-                future
-            ]
-
-            try:
-
-                result = future.result()
-
-                results.append(
-                    result
-                )
-
-                print(
-                    f"[Ulke "
-                    f"{completed}/{total}] "
-                    f"{country}"
-                )
-
-            except Exception as exc:
-
-                print(
-                    f"[Ulke hata "
-                    f"{completed}/{total}] "
-                    f"{country}: "
-                    f"{exc}"
-                )
+    print(
+        "======================================"
+    )
 
     country_images = {}
     sources = {}
 
-    for result in results:
+    total = len(
+        all_countries
+    )
 
-        country = result[
-            "country"
-        ]
+    for index, country in enumerate(
+        all_countries,
+        start=1
+    ):
 
-        path = result[
-            "path"
-        ]
+        print(
+            f"[Ulke {index}/{total}] "
+            f"{country}"
+        )
 
-        if path:
+        result = country_task(
+            country
+        )
+
+        if result["path"]:
 
             country_images[
                 country
-            ] = path
+            ] = result["path"]
 
-        if result[
-            "source"
-        ]:
+        if result["source"]:
 
-            sources[path] = result[
-                "source"
-            ]
+            sources[
+                result["path"]
+            ] = result["source"]
 
+    print("")
     print(
         f"Ulke gorselleri: "
-        f"{len(country_images)}/"
-        f"{len(all_countries)}"
+        f"{len(country_images)}/{total}"
     )
 
-    return country_images, sources
+    return (
+        country_images,
+        sources
+    )
 
 
 # ============================================================
-# UNESCO SITE GÖRSELLERİ
+# UNESCO GÖRSELLERİ
 # ============================================================
 
 def site_task(site):
@@ -877,16 +1128,24 @@ def site_task(site):
                 path.relative_to(ROOT)
             ).replace("\\", "/"),
             "source": None,
+            "existing": True,
         }
 
-    query = (
-        f"{site['name']} "
-        f"{search_country} "
-        f"UNESCO World Heritage"
-    )
+    queries = [
+        (
+            f"{site['name']} "
+            f"{search_country} "
+            f"UNESCO"
+        ),
+        (
+            f"{site['name']} "
+            f"{search_country}"
+        ),
+        site["name"],
+    ]
 
-    info = commons(
-        query
+    info = commons_search(
+        queries
     )
 
     if not info:
@@ -895,135 +1154,137 @@ def site_task(site):
             "id": site["id"],
             "path": None,
             "source": None,
+            "existing": False,
         }
 
-    try:
-
-        save_jpg(
-            info["url"],
-            path
-        )
-
-        return {
-            "id": site["id"],
-            "path": str(
-                path.relative_to(ROOT)
-            ).replace("\\", "/"),
-            "source": info,
-        }
-
-    except Exception as exc:
-
-        print(
-            f"  Site gorseli "
-            f"indirilemedi: "
-            f"{site['name']} - "
-            f"{exc}"
-        )
+    if not save_jpg(
+        info["url"],
+        path
+    ):
 
         return {
             "id": site["id"],
             "path": None,
             "source": None,
+            "existing": False,
         }
+
+    return {
+        "id": site["id"],
+        "path": str(
+            path.relative_to(ROOT)
+        ).replace("\\", "/"),
+        "source": info,
+        "existing": False,
+    }
 
 
 def download_site_images(
-    sites
+    sites,
+    part_name
 ):
+
+    start, end = PART_RANGES[
+        part_name
+    ]
+
+    selected = sites[
+        start:end
+    ]
 
     print("")
     print(
-        "UNESCO alan gorselleri "
-        "indiriliyor..."
-    )
-
-    site_images = {}
-    sources = {}
-
-    with ThreadPoolExecutor(
-        max_workers=MAX_WORKERS
-    ) as executor:
-
-        futures = {
-            executor.submit(
-                site_task,
-                site
-            ): site
-            for site in sites
-        }
-
-        total = len(futures)
-
-        completed = 0
-
-        for future in as_completed(
-            futures
-        ):
-
-            completed += 1
-
-            site = futures[
-                future
-            ]
-
-            try:
-
-                result = future.result()
-
-                site_id = result[
-                    "id"
-                ]
-
-                site_images[
-                    site_id
-                ] = result[
-                    "path"
-                ]
-
-                if result[
-                    "source"
-                ] and result[
-                    "path"
-                ]:
-
-                    sources[
-                        result["path"]
-                    ] = result[
-                        "source"
-                    ]
-
-                print(
-                    f"[Site "
-                    f"{completed}/{total}] "
-                    f"{site['name']}"
-                )
-
-            except Exception as exc:
-
-                print(
-                    f"[Site hata "
-                    f"{completed}/{total}] "
-                    f"{site['name']}: "
-                    f"{exc}"
-                )
-
-                site_images[
-                    site["id"]
-                ] = None
-
-    successful = sum(
-        1
-        for value in site_images.values()
-        if value
+        "======================================"
     )
 
     print(
-        f"UNESCO gorselleri: "
-        f"{successful}/{len(sites)}"
+        f"UNESCO GORSELLERI - {part_name}"
     )
 
-    return site_images, sources
+    print(
+        f"Aralik: {start + 1}-{end}"
+    )
+
+    print(
+        f"Bu parca: {len(selected)} site"
+    )
+
+    print(
+        "======================================"
+    )
+
+    site_images = {}
+    sources = load_existing_sources()
+
+    total = len(
+        selected
+    )
+
+    successful = 0
+
+    for local_index, site in enumerate(
+        selected,
+        start=1
+    ):
+
+        global_index = start + local_index
+
+        print("")
+        print(
+            f"[UNESCO {global_index}/"
+            f"{len(sites)}] "
+            f"{site['name']}"
+        )
+
+        result = site_task(
+            site
+        )
+
+        site_images[
+            site["id"]
+        ] = result["path"]
+
+        if result["path"]:
+
+            successful += 1
+
+        if result["source"]:
+
+            sources[
+                result["path"]
+            ] = result["source"]
+
+    # Diğer parçaların mevcut dosyalarını da JSON'a dahil et.
+    for site in sites:
+
+        filename = clean(
+            f"{site['countries'][0]} - "
+            f"{site['name']}.jpg"
+        )
+
+        path = (
+            SITE_DIR / filename
+        )
+
+        if path.exists():
+
+            site_images[
+                site["id"]
+            ] = str(
+                path.relative_to(ROOT)
+            ).replace("\\", "/")
+
+    print("")
+    print(
+        f"UNESCO gorselleri "
+        f"bu parca: "
+        f"{successful}/{total}"
+    )
+
+    return (
+        site_images,
+        sources
+    )
 
 
 # ============================================================
@@ -1098,6 +1359,11 @@ def create_json(
                 }
             )
 
+    DATA_DIR.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
     unesco_file = (
         DATA_DIR / "unesco.json"
     )
@@ -1138,22 +1404,57 @@ def create_json(
 
 
 # ============================================================
+# MOD / ARGÜMAN
+# ============================================================
+
+def get_mode():
+
+    if len(sys.argv) >= 2:
+
+        return sys.argv[1].strip().lower()
+
+    return "countries"
+
+
+# ============================================================
 # MAIN
 # ============================================================
 
 def main():
 
+    mode = get_mode()
+
+    valid_modes = {
+        "countries",
+        "unesco-1",
+        "unesco-2",
+        "unesco-3",
+    }
+
+    if mode not in valid_modes:
+
+        raise SystemExit(
+            "Gecersiz mod. "
+            "Kullan: countries, unesco-1, "
+            "unesco-2 veya unesco-3"
+        )
+
     print("")
     print(
         "======================================"
     )
+
     print(
         " PIECE OF PAST - UNESCO DOWNLOADER"
     )
+
+    print(
+        f" MOD: {mode}"
+    )
+
     print(
         "======================================"
     )
-    print("")
 
     COUNTRY_DIR.mkdir(
         parents=True,
@@ -1171,7 +1472,7 @@ def main():
     )
 
     # --------------------------------------------------------
-    # 1. UNESCO VERİSİ
+    # UNESCO VERİSİNİ HER AŞAMADA OKU
     # --------------------------------------------------------
 
     sites, all_countries = (
@@ -1179,53 +1480,161 @@ def main():
     )
 
     # --------------------------------------------------------
-    # 2. ÜLKE GÖRSELLERİ
+    # MEVCUT ÜLKE GÖRSELLERİNİ BUL
     # --------------------------------------------------------
 
-    country_images, country_sources = (
-        download_country_images(
-            all_countries
+    country_images = {}
+
+    for country in all_countries:
+
+        path = (
+            COUNTRY_DIR
+            / f"{clean(country)}.jpg"
         )
-    )
+
+        if path.exists():
+
+            country_images[
+                country
+            ] = str(
+                path.relative_to(ROOT)
+            ).replace("\\", "/")
 
     # --------------------------------------------------------
-    # 3. UNESCO ALAN GÖRSELLERİ
+    # ÜLKELER
+    # --------------------------------------------------------
+
+    if mode == "countries":
+
+        country_images, country_sources = (
+            download_country_images(
+                all_countries
+            )
+        )
+
+        existing_sources = (
+            load_existing_sources()
+        )
+
+        existing_sources.update(
+            country_sources
+        )
+
+        # UNESCO site görselleri henüz yok.
+        site_images = {}
+
+        for site in sites:
+
+            filename = clean(
+                f"{site['countries'][0]} - "
+                f"{site['name']}.jpg"
+            )
+
+            path = (
+                SITE_DIR / filename
+            )
+
+            if path.exists():
+
+                site_images[
+                    site["id"]
+                ] = str(
+                    path.relative_to(ROOT)
+                ).replace("\\", "/")
+
+        create_json(
+            sites,
+            country_images,
+            site_images,
+            existing_sources
+        )
+
+        print("")
+        print(
+            "ULKE ASAMASI TAMAMLANDI."
+        )
+
+        print(
+            f"Toplam ulke: "
+            f"{len(all_countries)}"
+        )
+
+        print(
+            f"Indirilen/mevcut ulke: "
+            f"{len(country_images)}"
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # UNESCO PARÇASI
     # --------------------------------------------------------
 
     site_images, site_sources = (
         download_site_images(
-            sites
+            sites,
+            mode
         )
     )
 
-    # --------------------------------------------------------
-    # 4. KAYNAKLARI BİRLEŞTİR
-    # --------------------------------------------------------
+    # Tüm mevcut ülke görsellerini tekrar oku.
+    country_images = {}
 
-    sources = {}
+    for country in all_countries:
 
-    sources.update(
-        country_sources
-    )
+        path = (
+            COUNTRY_DIR
+            / f"{clean(country)}.jpg"
+        )
+
+        if path.exists():
+
+            country_images[
+                country
+            ] = str(
+                path.relative_to(ROOT)
+            ).replace("\\", "/")
+
+    # Mevcut kaynakları koru.
+    sources = load_existing_sources()
 
     sources.update(
         site_sources
     )
 
-    # --------------------------------------------------------
-    # 5. JSON
-    # --------------------------------------------------------
+    # Tüm mevcut site görsellerini JSON'a dahil et.
+    all_site_images = {}
+
+    for site in sites:
+
+        filename = clean(
+            f"{site['countries'][0]} - "
+            f"{site['name']}.jpg"
+        )
+
+        path = (
+            SITE_DIR / filename
+        )
+
+        if path.exists():
+
+            all_site_images[
+                site["id"]
+            ] = str(
+                path.relative_to(ROOT)
+            ).replace("\\", "/")
+
+    # Bu çalıştırmada bulunanlar da eklensin.
+    all_site_images.update(
+        site_images
+    )
 
     create_json(
         sites,
         country_images,
-        site_images,
+        all_site_images,
         sources
     )
-
-    # --------------------------------------------------------
-    # 6. SONUÇ
-    # --------------------------------------------------------
 
     print("")
     print(
@@ -1233,24 +1642,27 @@ def main():
     )
 
     print(
-        f"UNESCO alanlari: "
+        f"Toplam UNESCO alani: "
         f"{len(sites)}"
     )
 
     print(
-        f"Ulkeler: "
+        f"Toplam ulke: "
         f"{len(all_countries)}"
     )
 
     print(
-        f"Ulke gorselleri: "
+        f"Toplam mevcut ulke gorseli: "
         f"{len(country_images)}"
     )
 
     print(
-        f"UNESCO gorselleri: "
-        f"{sum(1 for x in site_images.values() if x)}"
-        f"/{len(sites)}"
+        f"Toplam mevcut UNESCO gorseli: "
+        f"{sum(1 for x in all_site_images.values() if x)}"
+    )
+
+    print(
+        f"Tamamlanan parca: {mode}"
     )
 
     print(
@@ -1259,7 +1671,7 @@ def main():
 
     print("")
     print(
-        "UNESCO islemi tamamlandi."
+        "UNESCO asamasi tamamlandi."
     )
 
 
