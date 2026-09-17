@@ -1,593 +1,866 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import os
 import sys
 import re
+import io
 import json
 import time
+import html
 import unicodedata
-from pathlib import Path
-from io import BytesIO
 import xml.etree.ElementTree as ET
 
 import requests
 from PIL import Image
 
 
-# ============================================================
-# PIECE OF PAST
-# UNESCO WORLD HERITAGE IMAGE DOWNLOADER
-# ============================================================
+# ==========================================================
+# AYARLAR
+# ==========================================================
 
-ROOT = Path(__file__).resolve().parent
-
-COUNTRY_DIR = ROOT / "ülkeler"
-SITE_DIR = ROOT / "unesco dünya mirasları"
-DATA_DIR = ROOT / "data"
-
-SITE_DIR.mkdir(parents=True, exist_ok=True)
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-
-# ============================================================
-# UNESCO
-# ============================================================
-
-UNESCO_XML_URL = "https://whc.unesco.org/en/list/xml/"
-
-# Wikimedia Commons API
-WIKIMEDIA_API = "https://commons.wikimedia.org/w/api.php"
-
-USER_AGENT = (
-    "PieceOfPast/1.0 "
-    "(https://github.com/mgagames23/PIECE-OF-PAST; "
-    "UNESCO World Heritage image downloader)"
+UNESCO_XML_URL = (
+    "https://whc.unesco.org/en/list/xml/"
 )
 
-REQUEST_TIMEOUT = 45
+COMMONS_API = (
+    "https://commons.wikimedia.org/w/api.php"
+)
 
-# Wikimedia'ya seri istek gönderiyoruz.
-WIKIMEDIA_DELAY = 3.0
+UNESCO_DIR = "unesco dünya mirasları"
+FLAGS_DIR = "ülkeler"
+DATA_DIR = "data"
 
-MAX_RETRIES = 8
+SOURCES_FILE = os.path.join(
+    DATA_DIR,
+    "image_sources.json"
+)
+
+REQUEST_TIMEOUT = 40
+
+# Wikimedia API'yi aşırı hızlı sorgulamamak için
+REQUEST_DELAY = 1.2
+
+# Bir site için ilk aramada yeterli sonuç yoksa
+# ikinci arama yapılabilir.
+MAX_SEARCH_RESULTS = 20
+
+# Kabul edilen görüntü MIME tipleri
+ALLOWED_MIMES = {
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+}
+
+# Kabul edilen dosya uzantıları
+ALLOWED_EXTENSIONS = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+}
+
+# Açıkça istemediğimiz dosya uzantıları
+BAD_EXTENSIONS = {
+    ".pdf",
+    ".djvu",
+    ".djv",
+    ".svg",
+    ".svgz",
+    ".tif",
+    ".tiff",
+    ".psd",
+    ".eps",
+    ".ai",
+    ".xcf",
+    ".webm",
+    ".ogv",
+    ".ogg",
+    ".mp4",
+    ".avi",
+    ".mov",
+    ".gif",
+}
 
 
-# ============================================================
-# 3 PARÇA
-#
-# Liste kaç kayıt içerirse içersin 3 parçaya bölünür.
-# Böylece 1273'e sabitlenmez.
-# ============================================================
+# ==========================================================
+# ÜLKE ISO KODLARI
+# ==========================================================
 
-PART_COUNT = 3
+ISO_CODES = {
+    "afghanistan": "af",
+    "albania": "al",
+    "algeria": "dz",
+    "andorra": "ad",
+    "angola": "ao",
+    "antigua and barbuda": "ag",
+    "argentina": "ar",
+    "armenia": "am",
+    "australia": "au",
+    "austria": "at",
+    "azerbaijan": "az",
+    "bahamas": "bs",
+    "bahrain": "bh",
+    "bangladesh": "bd",
+    "barbados": "bb",
+    "belarus": "by",
+    "belgium": "be",
+    "belize": "bz",
+    "benin": "bj",
+    "bhutan": "bt",
+    "bolivia": "bo",
+    "bosnia and herzegovina": "ba",
+    "botswana": "bw",
+    "brazil": "br",
+    "brunei": "bn",
+    "bulgaria": "bg",
+    "burkina faso": "bf",
+    "burundi": "bi",
+    "cabo verde": "cv",
+    "cape verde": "cv",
+    "cambodia": "kh",
+    "cameroon": "cm",
+    "canada": "ca",
+    "central african republic": "cf",
+    "chad": "td",
+    "chile": "cl",
+    "china": "cn",
+    "colombia": "co",
+    "comoros": "km",
+    "congo": "cg",
+    "democratic republic of the congo": "cd",
+    "republic of the congo": "cg",
+    "costa rica": "cr",
+    "cote d'ivoire": "ci",
+    "côte d'ivoire": "ci",
+    "croatia": "hr",
+    "cuba": "cu",
+    "cyprus": "cy",
+    "czechia": "cz",
+    "czech republic": "cz",
+    "denmark": "dk",
+    "djibouti": "dj",
+    "dominica": "dm",
+    "dominican republic": "do",
+    "ecuador": "ec",
+    "egypt": "eg",
+    "el salvador": "sv",
+    "equatorial guinea": "gq",
+    "eritrea": "er",
+    "estonia": "ee",
+    "eswatini": "sz",
+    "swaziland": "sz",
+    "ethiopia": "et",
+    "fiji": "fj",
+    "finland": "fi",
+    "france": "fr",
+    "gabon": "ga",
+    "gambia": "gm",
+    "georgia": "ge",
+    "germany": "de",
+    "ghana": "gh",
+    "greece": "gr",
+    "grenada": "gd",
+    "guatemala": "gt",
+    "guinea": "gn",
+    "guinea-bissau": "gw",
+    "guyana": "gy",
+    "haiti": "ht",
+    "honduras": "hn",
+    "hungary": "hu",
+    "iceland": "is",
+    "india": "in",
+    "indonesia": "id",
+    "iran": "ir",
+    "iraq": "iq",
+    "ireland": "ie",
+    "israel": "il",
+    "italy": "it",
+    "jamaica": "jm",
+    "japan": "jp",
+    "jordan": "jo",
+    "kazakhstan": "kz",
+    "kenya": "ke",
+    "kiribati": "ki",
+    "kuwait": "kw",
+    "kyrgyzstan": "kg",
+    "laos": "la",
+    "latvia": "lv",
+    "lebanon": "lb",
+    "lesotho": "ls",
+    "liberia": "lr",
+    "libya": "ly",
+    "liechtenstein": "li",
+    "lithuania": "lt",
+    "luxembourg": "lu",
+    "madagascar": "mg",
+    "malawi": "mw",
+    "malaysia": "my",
+    "maldives": "mv",
+    "mali": "ml",
+    "malta": "mt",
+    "marshall islands": "mh",
+    "mauritania": "mr",
+    "mauritius": "mu",
+    "mexico": "mx",
+    "micronesia": "fm",
+    "moldova": "md",
+    "monaco": "mc",
+    "mongolia": "mn",
+    "montenegro": "me",
+    "morocco": "ma",
+    "mozambique": "mz",
+    "myanmar": "mm",
+    "namibia": "na",
+    "nauru": "nr",
+    "nepal": "np",
+    "netherlands": "nl",
+    "new zealand": "nz",
+    "nicaragua": "ni",
+    "niger": "ne",
+    "nigeria": "ng",
+    "north korea": "kp",
+    "democratic people's republic of korea": "kp",
+    "norway": "no",
+    "oman": "om",
+    "pakistan": "pk",
+    "palau": "pw",
+    "palestine": "ps",
+    "panama": "pa",
+    "papua new guinea": "pg",
+    "paraguay": "py",
+    "peru": "pe",
+    "philippines": "ph",
+    "poland": "pl",
+    "portugal": "pt",
+    "qatar": "qa",
+    "romania": "ro",
+    "russia": "ru",
+    "russian federation": "ru",
+    "rwanda": "rw",
+    "saint kitts and nevis": "kn",
+    "saint lucia": "lc",
+    "saint vincent and the grenadines": "vc",
+    "samoa": "ws",
+    "san marino": "sm",
+    "sao tome and principe": "st",
+    "são tomé and príncipe": "st",
+    "saudi arabia": "sa",
+    "senegal": "sn",
+    "serbia": "rs",
+    "seychelles": "sc",
+    "sierra leone": "sl",
+    "singapore": "sg",
+    "slovakia": "sk",
+    "slovenia": "si",
+    "solomon islands": "sb",
+    "somalia": "so",
+    "south africa": "za",
+    "south korea": "kr",
+    "republic of korea": "kr",
+    "spain": "es",
+    "sri lanka": "lk",
+    "sudan": "sd",
+    "suriname": "sr",
+    "sweden": "se",
+    "switzerland": "ch",
+    "syria": "sy",
+    "tajikistan": "tj",
+    "tanzania": "tz",
+    "thailand": "th",
+    "timor-leste": "tl",
+    "togo": "tg",
+    "tonga": "to",
+    "trinidad and tobago": "tt",
+    "tunisia": "tn",
+    "turkey": "tr",
+    "türkiye": "tr",
+    "turkiye": "tr",
+    "turkmenistan": "tm",
+    "tuvalu": "tv",
+    "uganda": "ug",
+    "ukraine": "ua",
+    "united arab emirates": "ae",
+    "united kingdom": "gb",
+    "united states": "us",
+    "united states of america": "us",
+    "uruguay": "uy",
+    "uzbekistan": "uz",
+    "vanuatu": "vu",
+    "venezuela": "ve",
+    "vietnam": "vn",
+    "viet nam": "vn",
+    "yemen": "ye",
+    "zambia": "zm",
+    "zimbabwe": "zw",
+}
 
-
-# ============================================================
-# ÜLKE ALIASLARI
-# ============================================================
 
 COUNTRY_ALIASES = {
     "Türkiye": [
         "Türkiye",
-        "Turkey",
         "Turkiye",
+        "Turkey",
+        "TR",
     ],
-
     "Turkey": [
-        "Türkiye",
         "Turkey",
+        "Türkiye",
         "Turkiye",
+        "TR",
     ],
-
-    "Czechia": [
-        "Czechia",
-        "Czech Republic",
-    ],
-
-    "Czech Republic": [
-        "Czechia",
-        "Czech Republic",
-    ],
-
-    "Russian Federation": [
-        "Russian Federation",
-        "Russia",
-    ],
-
-    "Russia": [
-        "Russian Federation",
-        "Russia",
-    ],
-
-    "Iran (Islamic Republic of)": [
-        "Iran (Islamic Republic of)",
-        "Iran",
-    ],
-
-    "Iran": [
-        "Iran (Islamic Republic of)",
-        "Iran",
-    ],
-
-    "Syrian Arab Republic": [
-        "Syrian Arab Republic",
-        "Syria",
-    ],
-
-    "Syria": [
-        "Syrian Arab Republic",
-        "Syria",
-    ],
-
-    "Venezuela (Bolivarian Republic of)": [
-        "Venezuela (Bolivarian Republic of)",
-        "Venezuela",
-    ],
-
-    "Venezuela": [
-        "Venezuela (Bolivarian Republic of)",
-        "Venezuela",
-    ],
-
-    "Bolivia (Plurinational State of)": [
-        "Bolivia (Plurinational State of)",
-        "Bolivia",
-    ],
-
-    "Bolivia": [
-        "Bolivia (Plurinational State of)",
-        "Bolivia",
-    ],
-
-    "United Republic of Tanzania": [
-        "United Republic of Tanzania",
-        "Tanzania",
-    ],
-
-    "Tanzania": [
-        "United Republic of Tanzania",
-        "Tanzania",
-    ],
-
-    "Democratic Republic of the Congo": [
-        "Democratic Republic of the Congo",
-        "DR Congo",
-        "Congo, Democratic Republic of the",
-    ],
-
-    "Congo, Democratic Republic of the": [
-        "Democratic Republic of the Congo",
-        "DR Congo",
-        "Congo, Democratic Republic of the",
-    ],
-
     "United States of America": [
         "United States of America",
         "United States",
         "USA",
+        "US",
+        "America",
     ],
-
-    "United States": [
-        "United States of America",
-        "United States",
-        "USA",
-    ],
-
-    "United Kingdom of Great Britain and Northern Ireland": [
-        "United Kingdom of Great Britain and Northern Ireland",
-        "United Kingdom",
-        "UK",
-    ],
-
     "United Kingdom": [
-        "United Kingdom of Great Britain and Northern Ireland",
         "United Kingdom",
         "UK",
+        "Britain",
+        "Great Britain",
+        "GB",
     ],
-
+    "Russian Federation": [
+        "Russian Federation",
+        "Russia",
+        "Russian",
+        "RU",
+    ],
+    "Czechia": [
+        "Czechia",
+        "Czech Republic",
+        "CZ",
+    ],
     "Republic of Korea": [
         "Republic of Korea",
         "South Korea",
-        "Korea, Republic of",
+        "Korea",
+        "KR",
     ],
-
-    "South Korea": [
-        "Republic of Korea",
-        "South Korea",
-        "Korea, Republic of",
-    ],
-
     "Democratic People's Republic of Korea": [
         "Democratic People's Republic of Korea",
         "North Korea",
-        "Korea, Democratic People's Republic of",
+        "Korea DPR",
+        "KP",
     ],
-
-    "North Korea": [
-        "Democratic People's Republic of Korea",
-        "North Korea",
-        "Korea, Democratic People's Republic of",
-    ],
-
-    "Lao People's Democratic Republic": [
-        "Lao People's Democratic Republic",
-        "Laos",
-    ],
-
-    "Laos": [
-        "Lao People's Democratic Republic",
-        "Laos",
-    ],
-
-    "United Arab Emirates": [
-        "United Arab Emirates",
-        "UAE",
-    ],
-
-    "Côte d'Ivoire": [
-        "Côte d'Ivoire",
-        "Ivory Coast",
-    ],
-
-    "Côte d’Ivoire": [
-        "Côte d’Ivoire",
-        "Côte d'Ivoire",
-        "Ivory Coast",
-    ],
-
-    "Eswatini": [
-        "Eswatini",
-        "Swaziland",
-    ],
-
-    "North Macedonia": [
-        "North Macedonia",
-        "Macedonia",
-    ],
-
     "Viet Nam": [
         "Viet Nam",
         "Vietnam",
+        "VN",
     ],
-
-    "Vietnam": [
-        "Viet Nam",
-        "Vietnam",
+    "Côte d'Ivoire": [
+        "Côte d'Ivoire",
+        "Cote d'Ivoire",
+        "Ivory Coast",
+        "CI",
     ],
 }
 
 
-# ============================================================
-# ISO KODLARI
-# ============================================================
-
-ISO_CODES = {
-    "Afghanistan": "af",
-    "Albania": "al",
-    "Algeria": "dz",
-    "Andorra": "ad",
-    "Angola": "ao",
-    "Antigua and Barbuda": "ag",
-    "Argentina": "ar",
-    "Armenia": "am",
-    "Australia": "au",
-    "Austria": "at",
-    "Azerbaijan": "az",
-    "Bahamas": "bs",
-    "Bahrain": "bh",
-    "Bangladesh": "bd",
-    "Barbados": "bb",
-    "Belarus": "by",
-    "Belgium": "be",
-    "Belize": "bz",
-    "Benin": "bj",
-    "Bolivia": "bo",
-    "Bosnia and Herzegovina": "ba",
-    "Botswana": "bw",
-    "Brazil": "br",
-    "Brunei Darussalam": "bn",
-    "Bulgaria": "bg",
-    "Burkina Faso": "bf",
-    "Burundi": "bi",
-    "Cabo Verde": "cv",
-    "Cambodia": "kh",
-    "Cameroon": "cm",
-    "Canada": "ca",
-    "Central African Republic": "cf",
-    "Chad": "td",
-    "Chile": "cl",
-    "China": "cn",
-    "Colombia": "co",
-    "Comoros": "km",
-    "Congo": "cg",
-    "Costa Rica": "cr",
-    "Croatia": "hr",
-    "Cuba": "cu",
-    "Cyprus": "cy",
-    "Czechia": "cz",
-    "Democratic Republic of the Congo": "cd",
-    "Denmark": "dk",
-    "Djibouti": "dj",
-    "Dominica": "dm",
-    "Dominican Republic": "do",
-    "Ecuador": "ec",
-    "Egypt": "eg",
-    "El Salvador": "sv",
-    "Equatorial Guinea": "gq",
-    "Eritrea": "er",
-    "Estonia": "ee",
-    "Eswatini": "sz",
-    "Ethiopia": "et",
-    "Fiji": "fj",
-    "Finland": "fi",
-    "France": "fr",
-    "Gabon": "ga",
-    "Gambia": "gm",
-    "Georgia": "ge",
-    "Germany": "de",
-    "Ghana": "gh",
-    "Greece": "gr",
-    "Grenada": "gd",
-    "Guatemala": "gt",
-    "Guinea": "gn",
-    "Guinea-Bissau": "gw",
-    "Guyana": "gy",
-    "Haiti": "ht",
-    "Honduras": "hn",
-    "Hungary": "hu",
-    "Iceland": "is",
-    "India": "in",
-    "Indonesia": "id",
-    "Iran": "ir",
-    "Iraq": "iq",
-    "Ireland": "ie",
-    "Israel": "il",
-    "Italy": "it",
-    "Jamaica": "jm",
-    "Japan": "jp",
-    "Jordan": "jo",
-    "Kazakhstan": "kz",
-    "Kenya": "ke",
-    "Kiribati": "ki",
-    "Kuwait": "kw",
-    "Kyrgyzstan": "kg",
-    "Lao People's Democratic Republic": "la",
-    "Laos": "la",
-    "Latvia": "lv",
-    "Lebanon": "lb",
-    "Lesotho": "ls",
-    "Liberia": "lr",
-    "Libya": "ly",
-    "Liechtenstein": "li",
-    "Lithuania": "lt",
-    "Luxembourg": "lu",
-    "Madagascar": "mg",
-    "Malawi": "mw",
-    "Malaysia": "my",
-    "Maldives": "mv",
-    "Mali": "ml",
-    "Malta": "mt",
-    "Marshall Islands": "mh",
-    "Mauritania": "mr",
-    "Mauritius": "mu",
-    "Mexico": "mx",
-    "Micronesia": "fm",
-    "Monaco": "mc",
-    "Mongolia": "mn",
-    "Montenegro": "me",
-    "Morocco": "ma",
-    "Mozambique": "mz",
-    "Myanmar": "mm",
-    "Namibia": "na",
-    "Nauru": "nr",
-    "Nepal": "np",
-    "Netherlands": "nl",
-    "New Zealand": "nz",
-    "Nicaragua": "ni",
-    "Niger": "ne",
-    "Nigeria": "ng",
-    "North Macedonia": "mk",
-    "Norway": "no",
-    "Oman": "om",
-    "Pakistan": "pk",
-    "Palau": "pw",
-    "Panama": "pa",
-    "Papua New Guinea": "pg",
-    "Paraguay": "py",
-    "Peru": "pe",
-    "Philippines": "ph",
-    "Poland": "pl",
-    "Portugal": "pt",
-    "Qatar": "qa",
-    "Republic of Korea": "kr",
-    "Republic of Moldova": "md",
-    "Romania": "ro",
-    "Russian Federation": "ru",
-    "Rwanda": "rw",
-    "Saint Kitts and Nevis": "kn",
-    "Saint Lucia": "lc",
-    "Saint Vincent and the Grenadines": "vc",
-    "Samoa": "ws",
-    "San Marino": "sm",
-    "Saudi Arabia": "sa",
-    "Senegal": "sn",
-    "Serbia": "rs",
-    "Seychelles": "sc",
-    "Sierra Leone": "sl",
-    "Singapore": "sg",
-    "Slovakia": "sk",
-    "Slovenia": "si",
-    "Solomon Islands": "sb",
-    "Somalia": "so",
-    "South Africa": "za",
-    "Spain": "es",
-    "Sri Lanka": "lk",
-    "Sudan": "sd",
-    "Suriname": "sr",
-    "Sweden": "se",
-    "Switzerland": "ch",
-    "Syrian Arab Republic": "sy",
-    "Tajikistan": "tj",
-    "Thailand": "th",
-    "Timor-Leste": "tl",
-    "Togo": "tg",
-    "Tonga": "to",
-    "Trinidad and Tobago": "tt",
-    "Tunisia": "tn",
-    "Türkiye": "tr",
-    "Turkey": "tr",
-    "Turkmenistan": "tm",
-    "Tuvalu": "tv",
-    "Uganda": "ug",
-    "Ukraine": "ua",
-    "United Arab Emirates": "ae",
-    "United Kingdom": "gb",
-    "United Republic of Tanzania": "tz",
-    "United States of America": "us",
-    "Uruguay": "uy",
-    "Uzbekistan": "uz",
-    "Vanuatu": "vu",
-    "Venezuela": "ve",
-    "Viet Nam": "vn",
-    "Vietnam": "vn",
-    "Yemen": "ye",
-    "Zambia": "zm",
-    "Zimbabwe": "zw",
-}
-
-
-# ============================================================
-# YARDIMCI
-# ============================================================
+# ==========================================================
+# GENEL YARDIMCI FONKSİYONLAR
+# ==========================================================
 
 def local_name(tag):
     """
-    XML namespace varsa kaldırır.
-
-    Örnek:
-        {http://example.com}site
-    ->  site
+    XML namespace varsa sadece gerçek tag adını döndürür.
     """
-
     if not tag:
         return ""
 
     if "}" in tag:
-        return tag.rsplit("}", 1)[-1]
+        tag = tag.split("}", 1)[1]
 
-    return tag
+    return tag.strip().lower()
 
 
-def normalize_text(text):
-    text = str(text or "")
+def clean_text(value):
+    if value is None:
+        return ""
 
-    text = unicodedata.normalize(
+    value = html.unescape(str(value))
+    value = re.sub(r"\s+", " ", value)
+    return value.strip()
+
+
+def normalize_text(value):
+    """
+    Arama ve karşılaştırma için Türkçe dahil Unicode normalize eder.
+    """
+    value = clean_text(value)
+
+    value = unicodedata.normalize(
         "NFKD",
-        text,
+        value
     )
 
-    text = "".join(
-        c
-        for c in text
+    value = "".join(
+        c for c in value
         if not unicodedata.combining(c)
     )
 
-    text = text.lower()
+    value = value.lower()
 
-    text = text.replace("’", "'")
-    text = text.replace("&", "and")
+    value = value.replace("’", "'")
+    value = value.replace("–", "-")
+    value = value.replace("—", "-")
 
-    text = re.sub(
-        r"[^a-z0-9]+",
-        "",
-        text,
+    value = re.sub(
+        r"[^a-z0-9\s-]",
+        " ",
+        value
     )
 
-    return text
-
-
-def clean_filename(text):
-    text = str(text or "").strip()
-
-    text = re.sub(
-        r'[<>:"/\\|?*]',
-        "",
-        text,
-    )
-
-    text = re.sub(
+    value = re.sub(
         r"\s+",
         " ",
-        text,
+        value
     )
 
-    return text
+    return value.strip()
 
 
-def get_country_variants(country):
-    variants = [
-        country,
+def slug_filename(value):
+    value = clean_text(value)
+
+    value = unicodedata.normalize(
+        "NFKD",
+        value
+    )
+
+    value = "".join(
+        c for c in value
+        if not unicodedata.combining(c)
+    )
+
+    value = re.sub(
+        r'[<>:"/\\|?*]',
+        "",
+        value
+    )
+
+    value = re.sub(
+        r"\s+",
+        " ",
+        value
+    )
+
+    value = value.strip()
+
+    return value
+
+
+def split_tokens(value):
+    normalized = normalize_text(value)
+
+    return [
+        token
+        for token in normalized.split()
+        if len(token) >= 3
     ]
 
-    if country in COUNTRY_ALIASES:
-        variants.extend(
-            COUNTRY_ALIASES[country]
-        )
 
-    for key, values in COUNTRY_ALIASES.items():
+def element_text(element):
+    """
+    Element içindeki tüm text parçalarını birleştirir.
+    """
+    if element is None:
+        return ""
 
-        if country == key:
+    parts = []
+
+    for text in element.itertext():
+        text = clean_text(text)
+
+        if text:
+            parts.append(text)
+
+    return clean_text(" ".join(parts))
+
+
+# ==========================================================
+# UNESCO XML
+# ==========================================================
+
+def download_unesco_xml():
+    print("=" * 70)
+    print("UNESCO DÜNYA MİRAS LİSTESİ XML İNDİRİLİYOR")
+    print("=" * 70)
+
+    response = requests.get(
+        UNESCO_XML_URL,
+        timeout=REQUEST_TIMEOUT,
+        headers={
+            "User-Agent": (
+                "PieceOfPast-UNESCO-Downloader/1.0 "
+                "(GitHub Actions)"
+            )
+        }
+    )
+
+    print(
+        f"UNESCO HTTP durumu: {response.status_code}"
+    )
+
+    response.raise_for_status()
+
+    print(
+        f"UNESCO XML boyutu: "
+        f"{len(response.content):,} byte"
+    )
+
+    return response.content
+
+
+def get_direct_children_map(row):
+    """
+    Bir UNESCO row içindeki doğrudan alanları çıkarır.
+    """
+    result = {}
+
+    for child in list(row):
+        tag = local_name(child.tag)
+
+        if not tag:
             continue
 
-        if country in values:
-            variants.append(key)
-            variants.extend(values)
+        text = element_text(child)
 
-    result = []
-    seen = set()
-
-    for value in variants:
-
-        normalized = normalize_text(value)
-
-        if normalized and normalized not in seen:
-            seen.add(normalized)
-            result.append(value)
+        if text:
+            if tag in result:
+                result[tag] = (
+                    result[tag]
+                    + " | "
+                    + text
+                )
+            else:
+                result[tag] = text
 
     return result
 
 
-# ============================================================
-# BAYRAK BUL
-#
-# BAYRAKLARA DOKUNMUYORUZ.
-# SADECE OKUYORUZ.
-# ============================================================
+def extract_country_from_element(row):
+    """
+    Ülke bilgisini farklı olası UNESCO XML yapılarından çıkarır.
+    """
 
-def find_country_image(country):
+    candidates = []
 
-    if not COUNTRY_DIR.exists():
-        return None
+    # Önce doğrudan child'lar
+    for child in list(row):
+        tag = local_name(child.tag)
 
-    wanted_names = set()
+        if tag in {
+            "country",
+            "countries",
+            "stateparty",
+            "state_party",
+            "statesparty",
+            "states_parties",
+            "countryname",
+            "country_name",
+        }:
+            text = element_text(child)
 
-    for variant in get_country_variants(country):
-        wanted_names.add(
-            normalize_text(variant)
-        )
+            if text:
+                candidates.append(text)
 
-    wanted_iso = set()
+    # Sonra descendant'lar
+    if not candidates:
+        for element in row.iter():
+            tag = local_name(element.tag)
 
-    for variant in get_country_variants(country):
+            if tag in {
+                "country",
+                "countries",
+                "stateparty",
+                "state_party",
+                "statesparty",
+                "states_parties",
+                "countryname",
+                "country_name",
+            }:
+                text = element_text(element)
 
-        if variant in ISO_CODES:
-            wanted_iso.add(
-                ISO_CODES[variant].lower()
-            )
+                if text:
+                    candidates.append(text)
 
-    for path in COUNTRY_DIR.iterdir():
+    # XML attribute kontrolü
+    if not candidates:
+        for element in row.iter():
+            for key, value in element.attrib.items():
+                key_norm = local_name(key)
 
-        if not path.is_file():
+                if key_norm in {
+                    "country",
+                    "countryname",
+                    "country_name",
+                    "stateparty",
+                    "state_party",
+                }:
+                    value = clean_text(value)
+
+                    if value:
+                        candidates.append(value)
+
+    return candidates
+
+
+def normalize_country_name(value):
+    value = clean_text(value)
+
+    if not value:
+        return ""
+
+    normalized = normalize_text(value)
+
+    for canonical, aliases in COUNTRY_ALIASES.items():
+        for alias in aliases:
+            if normalized == normalize_text(alias):
+                return canonical
+
+    for country, iso in ISO_CODES.items():
+        if normalized == country:
+            return country
+
+    return value
+
+
+def parse_country_values(row):
+    raw_values = extract_country_from_element(row)
+
+    countries = []
+
+    for raw in raw_values:
+        raw = clean_text(raw)
+
+        if not raw:
             continue
 
-        if path.suffix.lower() not in {
+        # Önce yaygın çoklu ayraçlar
+        pieces = re.split(
+            r"\s*[;|]\s*|\s*\n\s*",
+            raw
+        )
+
+        for piece in pieces:
+            piece = clean_text(piece)
+
+            if not piece:
+                continue
+
+            normalized_piece = normalize_text(piece)
+
+            # Tek bir ülke ise doğrudan kabul
+            if (
+                normalized_piece in ISO_CODES
+                or any(
+                    normalized_piece
+                    == normalize_text(alias)
+                    for aliases in COUNTRY_ALIASES.values()
+                    for alias in aliases
+                )
+            ):
+                countries.append(
+                    normalize_country_name(piece)
+                )
+                continue
+
+            # Virgüllü değerlerde sadece bilinen ülke adlarını
+            # ayıklamaya çalış.
+            comma_parts = [
+                clean_text(x)
+                for x in piece.split(",")
+            ]
+
+            if len(comma_parts) > 1:
+                found_any = False
+
+                for cp in comma_parts:
+                    cp_norm = normalize_text(cp)
+
+                    if (
+                        cp_norm in ISO_CODES
+                        or any(
+                            cp_norm
+                            == normalize_text(alias)
+                            for aliases in COUNTRY_ALIASES.values()
+                            for alias in aliases
+                        )
+                    ):
+                        countries.append(
+                            normalize_country_name(cp)
+                        )
+                        found_any = True
+
+                if found_any:
+                    continue
+
+            countries.append(
+                normalize_country_name(piece)
+            )
+
+    # Tekrarlardan arındır
+    result = []
+
+    seen = set()
+
+    for country in countries:
+        key = normalize_text(country)
+
+        if key and key not in seen:
+            seen.add(key)
+            result.append(country)
+
+    return result
+
+
+def parse_unesco_xml(xml_bytes):
+    print("=" * 70)
+    print("UNESCO XML PARSE EDİLİYOR")
+    print("=" * 70)
+
+    root = ET.fromstring(xml_bytes)
+
+    print(
+        f"XML root etiketi: "
+        f"{local_name(root.tag)}"
+    )
+
+    rows = [
+        element
+        for element in root.iter()
+        if local_name(element.tag) == "row"
+    ]
+
+    print(
+        f"UNESCO kayıt sayısı: {len(rows)}"
+    )
+
+    records = []
+
+    for index, row in enumerate(rows, start=1):
+
+        fields = get_direct_children_map(row)
+
+        site_name = ""
+
+        # En muhtemel UNESCO alan adları
+        for key in [
+            "site",
+            "name",
+            "property",
+            "propertyname",
+            "site_name",
+            "sitename",
+            "name_en",
+            "official_name",
+        ]:
+            if fields.get(key):
+                site_name = clean_text(
+                    fields[key]
+                )
+                break
+
+        # Eğer doğrudan child'da bulamadıysak
+        if not site_name:
+            for element in row.iter():
+                tag = local_name(element.tag)
+
+                if tag in {
+                    "site",
+                    "name",
+                    "propertyname",
+                    "site_name",
+                    "sitename",
+                    "official_name",
+                }:
+                    text = element_text(element)
+
+                    if text:
+                        site_name = text
+                        break
+
+        if not site_name:
+            continue
+
+        countries = parse_country_values(row)
+
+        record = {
+            "id": index,
+            "site": site_name,
+            "countries": countries,
+        }
+
+        records.append(record)
+
+    print(
+        f"Başarıyla parse edilen kayıt: "
+        f"{len(records)}"
+    )
+
+    countries_found = set()
+
+    for record in records:
+        for country in record["countries"]:
+            countries_found.add(country)
+
+    print(
+        f"UNESCO kayıtlarında bulunan farklı "
+        f"ülke sayısı: {len(countries_found)}"
+    )
+
+    # İlk 5 kaydı özellikle göster
+    print("=" * 70)
+    print("İLK 5 UNESCO KAYDI KONTROLÜ")
+    print("=" * 70)
+
+    for record in records[:5]:
+        print(
+            f"{record['site']} | "
+            f"Ülke: "
+            f"{', '.join(record['countries']) or 'YOK'}"
+        )
+
+    return records
+
+
+# ==========================================================
+# BAYRAK KONTROLÜ
+# ==========================================================
+
+def get_flag_files():
+    """
+    Kullanıcının manuel yüklediği ülke bayraklarını okur.
+
+    Bu fonksiyon sadece okur.
+    Hiçbir dosyayı silmez veya değiştirmez.
+    """
+
+    if not os.path.isdir(FLAGS_DIR):
+        return []
+
+    files = []
+
+    for filename in os.listdir(FLAGS_DIR):
+
+        path = os.path.join(
+            FLAGS_DIR,
+            filename
+        )
+
+        if not os.path.isfile(path):
+            continue
+
+        ext = os.path.splitext(
+            filename
+        )[1].lower()
+
+        if ext not in {
             ".jpg",
             ".jpeg",
             ".png",
@@ -595,719 +868,260 @@ def find_country_image(country):
         }:
             continue
 
-        stem = normalize_text(
-            path.stem
-        )
+        files.append(filename)
 
-        if stem in wanted_names:
-            return path
+    return files
 
-        if stem in wanted_iso:
-            return path
+
+def flag_matches_country(filename, country):
+    base = os.path.splitext(
+        filename
+    )[0]
+
+    base_norm = normalize_text(base)
+    country_norm = normalize_text(country)
+
+    # Doğrudan isim
+    if base_norm == country_norm:
+        return True
+
+    # ISO kodu
+    iso = ISO_CODES.get(country_norm)
+
+    if iso and base_norm == iso:
+        return True
+
+    # Alias
+    aliases = COUNTRY_ALIASES.get(
+        country,
+        []
+    )
+
+    for alias in aliases:
+
+        if base_norm == normalize_text(alias):
+            return True
+
+    return False
+
+
+def find_country_flag(country):
+    flag_files = get_flag_files()
+
+    for filename in flag_files:
+
+        if flag_matches_country(
+            filename,
+            country
+        ):
+            return os.path.join(
+                FLAGS_DIR,
+                filename
+            )
 
     return None
 
 
-def verify_country_flags(sites):
-
-    countries = set()
-
-    for site in sites:
-
-        for country in site.get(
-            "countries",
-            [],
-        ):
-
-            country = country.strip()
-
-            if country:
-                countries.add(country)
-
-    countries = sorted(
-        countries,
-        key=lambda x: normalize_text(x),
-    )
-
-    print()
+def verify_country_flags(records):
     print("=" * 70)
     print("ÜLKE BAYRAKLARI KONTROLÜ")
     print("=" * 70)
 
+    countries = set()
+
+    for record in records:
+        for country in record["countries"]:
+            countries.add(country)
+
     print(
-        f"UNESCO kayıtlarında bulunan farklı ülke sayısı: "
-        f"{len(countries)}"
+        f"UNESCO kayıtlarında bulunan farklı "
+        f"ülke sayısı: {len(countries)}"
     )
 
-    print()
+    if not countries:
+        print()
+        print(
+            "HATA: UNESCO kayıtlarından ülke "
+            "bilgisi çıkarılamadı."
+        )
+        print(
+            "Bu nedenle işlem güvenli şekilde "
+            "durduruluyor."
+        )
+        print()
+        return False
 
     missing = []
 
-    for country in countries:
+    for country in sorted(countries):
 
-        image = find_country_image(
-            country
-        )
-
-        if image:
-
-            print(
-                f"[OK] {country} -> {image.name}"
-            )
-
-        else:
-
-            print(
-                f"[YOK] {country}"
-            )
-
+        if not find_country_flag(country):
             missing.append(country)
-
-    print()
 
     if missing:
 
         print(
-            f"Eksik bayrak: {len(missing)}"
+            f"EKSİK BAYRAK SAYISI: {len(missing)}"
         )
-
-        print()
 
         for country in missing:
             print(
-                f" - {country}"
+                f"  [EKSIK] {country}"
             )
 
-        raise RuntimeError(
-            "UNESCO listesinde bulunan bazı "
-            "ülkelerin bayrakları ülkeler/ klasöründe yok."
+        print()
+        print(
+            "Eksik bayrak bulunduğu için işlem "
+            "durduruluyor."
         )
+
+        return False
 
     print(
         "TÜM GEREKLİ ÜLKE BAYRAKLARI BULUNDU."
     )
 
-    print()
+    return True
 
 
-# ============================================================
-# UNESCO XML İNDİR
-# ============================================================
+# ==========================================================
+# DOSYA İSİMLERİ
+# ==========================================================
 
-def download_unesco_xml():
-
-    print(
-        "UNESCO Dünya Mirası XML indiriliyor..."
+def get_primary_country(record):
+    countries = record.get(
+        "countries",
+        []
     )
 
+    if countries:
+        return countries[0]
+
+    return "Unknown"
+
+
+def make_image_filename(record):
+    site = slug_filename(
+        record["site"]
+    )
+
+    country = slug_filename(
+        get_primary_country(record)
+    )
+
+    if not country:
+        country = "Unknown"
+
+    return (
+        f"{site} - {country}.jpg"
+    )
+
+
+# ==========================================================
+# WIKIMEDIA COMMONS
+# ==========================================================
+
+def commons_api(params):
+    params = dict(params)
+
+    params["format"] = "json"
+    params["formatversion"] = "2"
+
     headers = {
-        "User-Agent": USER_AGENT,
-        "Accept": "application/xml,text/xml,*/*",
-        "Accept-Encoding": "gzip",
+        "User-Agent": (
+            "PieceOfPast-UNESCO-Downloader/1.0 "
+            "(GitHub Actions; Wikimedia Commons API)"
+        )
     }
 
+    time.sleep(
+        REQUEST_DELAY
+    )
+
     response = requests.get(
-        UNESCO_XML_URL,
-        headers=headers,
+        COMMONS_API,
+        params=params,
         timeout=REQUEST_TIMEOUT,
+        headers=headers
     )
 
     response.raise_for_status()
 
-    print(
-        f"UNESCO HTTP durumu: "
-        f"{response.status_code}"
+    return response.json()
+
+
+def is_bad_filename(title):
+    title_lower = title.lower()
+
+    for ext in BAD_EXTENSIONS:
+        if title_lower.endswith(ext):
+            return True
+
+    bad_words = [
+        "world factbook",
+        "location map",
+        "locator map",
+        "blank map",
+        "coat of arms",
+        "flag of",
+        "logo",
+        "poster",
+        "stamp",
+        "coin",
+        "book cover",
+        "screenshot",
+        "diagram",
+        "chart",
+        "document",
+        "brochure",
+        "pdf",
+    ]
+
+    normalized = normalize_text(
+        title_lower
     )
 
-    print(
-        f"UNESCO XML boyutu: "
-        f"{len(response.content):,} byte"
-    )
+    for word in bad_words:
+        if normalize_text(word) in normalized:
+            return True
 
-    if not response.content:
-        raise RuntimeError(
-            "UNESCO XML boş geldi."
-        )
+    return False
 
-    return response.content
 
-
-# ============================================================
-# XML İÇERİĞİNDEN DEĞER BULMA
-# ============================================================
-
-def element_text(element):
-
-    if element is None:
-        return ""
-
-    text = "".join(
-        element.itertext()
-    ).strip()
-
-    return re.sub(
-        r"\s+",
-        " ",
-        text,
-    )
-
-
-def child_text_by_names(
-    element,
-    names,
-):
-
-    wanted = {
-        name.lower()
-        for name in names
-    }
-
-    for child in element.iter():
-
-        tag = local_name(
-            child.tag
-        ).lower()
-
-        if tag in wanted:
-
-            text = element_text(
-                child
-            )
-
-            if text:
-                return text
-
-    return ""
-
-
-def extract_country_values(element):
-
-    countries = []
-
-    # Öncelikle country alanlarını bul.
-    for child in element.iter():
-
-        tag = local_name(
-            child.tag
-        ).lower()
-
-        if tag not in {
-            "country",
-            "countries",
-            "stateparty",
-            "stateparties",
-        }:
-            continue
-
-        text = element_text(
-            child
-        )
-
-        if not text:
-            continue
-
-        # XML'de birden fazla ülke çeşitli
-        # ayraçlarla gelebilir.
-        pieces = re.split(
-            r"\s*(?:,|;|\|)\s*",
-            text,
-        )
-
-        for piece in pieces:
-
-            piece = piece.strip()
-
-            if piece and piece not in countries:
-                countries.append(piece)
-
-    return countries
-
-
-# ============================================================
-# UNESCO XML PARSE
-# ============================================================
-
-def parse_unesco_xml():
-
-    xml_data = download_unesco_xml()
-
-    try:
-
-        root = ET.fromstring(
-            xml_data
-        )
-
-    except ET.ParseError as exc:
-
-        raise RuntimeError(
-            f"UNESCO XML parse edilemedi: {exc}"
-        )
-
-    print(
-        f"XML root etiketi: {root.tag}"
-    )
-
-    # --------------------------------------------------------
-    # XML'deki bütün elementleri incele.
-    # Önce gerçek "site" elementlerini bul.
-    # --------------------------------------------------------
-
-    site_elements = []
-
-    for element in root.iter():
-
-        tag = local_name(
-            element.tag
-        ).lower()
-
-        if tag in {
-            "site",
-            "property",
-            "propertyname",
-        }:
-
-            text = element_text(
-                element
-            )
-
-            if text:
-                site_elements.append(
-                    element
-                )
-
-    # --------------------------------------------------------
-    # Eğer site elementleri varsa onların parent benzeri
-    # kapsayıcılarını kullanmak yerine doğrudan site'dan
-    # kayıt çıkarmaya çalışıyoruz.
-    # --------------------------------------------------------
-
-    sites = []
-
-    for site_element in site_elements:
-
-        name = element_text(
-            site_element
-        )
-
-        if not name:
-            continue
-
-        # Site elementinin kendisi dışında,
-        # parent'a erişim ElementTree'de doğrudan olmadığı
-        # için ülke bilgisini XML genelinden daha sonra
-        # eşleştirmeye çalışacağız.
-        countries = []
-
-        sites.append({
-            "name": name,
-            "countries": countries,
-        })
-
-    # --------------------------------------------------------
-    # Daha doğru yöntem:
-    # XML'de "row" veya benzeri kayıt kapsayıcılarını bul.
-    # --------------------------------------------------------
-
-    containers = []
-
-    container_names = {
-        "row",
-        "record",
-        "item",
-        "property",
-        "site",
-    }
-
-    for element in root.iter():
-
-        tag = local_name(
-            element.tag
-        ).lower()
-
-        if tag in container_names:
-
-            child_tags = {
-                local_name(
-                    child.tag
-                ).lower()
-                for child in element.iter()
-            }
-
-            has_name = bool(
-                child_tags.intersection({
-                    "site",
-                    "name",
-                    "property",
-                    "propertyname",
-                })
-            )
-
-            has_country = bool(
-                child_tags.intersection({
-                    "country",
-                    "countries",
-                    "stateparty",
-                    "stateparties",
-                })
-            )
-
-            if has_name and has_country:
-                containers.append(
-                    element
-                )
-
-    # --------------------------------------------------------
-    # Öncelik: ülke bilgisi içeren container kayıtları
-    # --------------------------------------------------------
-
-    if containers:
-
-        parsed = []
-
-        for container in containers:
-
-            name = child_text_by_names(
-                container,
-                {
-                    "site",
-                    "name",
-                    "property",
-                    "propertyname",
-                },
-            )
-
-            countries = extract_country_values(
-                container
-            )
-
-            if not name:
-                continue
-
-            parsed.append({
-                "name": name,
-                "countries": countries,
-            })
-
-        if parsed:
-            sites = parsed
-
-    # --------------------------------------------------------
-    # Duplicate temizliği
-    # --------------------------------------------------------
-
-    unique = []
-    seen = set()
-
-    for site in sites:
-
-        name = (
-            site.get("name", "")
-            .strip()
-        )
-
-        countries = []
-
-        for country in site.get(
-            "countries",
-            [],
-        ):
-
-            country = country.strip()
-
-            if country and country not in countries:
-                countries.append(country)
-
-        if not name:
-            continue
-
-        key = (
-            normalize_text(name),
-            tuple(
-                normalize_text(c)
-                for c in countries
-            ),
-        )
-
-        if key in seen:
-            continue
-
-        seen.add(key)
-
-        unique.append({
-            "name": name,
-            "countries": countries,
-        })
-
-    sites = unique
-
-    # --------------------------------------------------------
-    # 0 kayıt ise detaylı teşhis
-    # --------------------------------------------------------
-
-    if not sites:
-
-        print()
-        print(
-            "UNESCO XML geldi ancak kayıt çıkarılamadı."
-        )
-
-        print(
-            "XML root:",
-            root.tag,
-        )
-
-        print(
-            "İlk XML etiketleri:"
-        )
-
-        count = 0
-
-        for element in root.iter():
-
-            print(
-                " -",
-                element.tag,
-            )
-
-            count += 1
-
-            if count >= 30:
-                break
-
-        raise RuntimeError(
-            "UNESCO XML içinden Dünya Mirası kayıtları "
-            "çıkarılamadı."
-        )
-
-    print()
-    print(
-        f"UNESCO kayıt sayısı: {len(sites)}"
-    )
-
-    # UNESCO listesi binin üzerinde olmalı.
-    # Sabit olarak 1273 beklemiyoruz.
-    if len(sites) < 1000:
-
-        raise RuntimeError(
-            "UNESCO kayıt sayısı beklenenden düşük: "
-            f"{len(sites)}"
-        )
-
-    return sites
-
-
-# ============================================================
-# WIKIMEDIA API
-# ============================================================
-
-def wikipedia_request(params):
-
-    headers = {
-        "User-Agent": USER_AGENT,
-        "Accept": "application/json",
-        "Accept-Encoding": "gzip",
-    }
-
-    wait_time = 5
-
-    for attempt in range(
-        1,
-        MAX_RETRIES + 1,
-    ):
-
-        try:
-
-            response = requests.get(
-                WIKIMEDIA_API,
-                params=params,
-                headers=headers,
-                timeout=REQUEST_TIMEOUT,
-            )
-
-            # 429
-            if response.status_code == 429:
-
-                retry_after = (
-                    response.headers.get(
-                        "Retry-After"
-                    )
-                )
-
-                if retry_after:
-
-                    try:
-                        wait = max(
-                            5,
-                            int(retry_after),
-                        )
-
-                    except ValueError:
-                        wait = wait_time
-
-                else:
-                    wait = wait_time
-
-                print(
-                    f"Wikimedia 429 -> "
-                    f"{wait} saniye bekleniyor."
-                )
-
-                time.sleep(wait)
-
-                wait_time = min(
-                    wait_time * 2,
-                    60,
-                )
-
-                continue
-
-            # 5xx
-            if response.status_code in {
-                500,
-                502,
-                503,
-                504,
-            }:
-
-                print(
-                    f"Wikimedia HTTP "
-                    f"{response.status_code} -> "
-                    f"{wait_time} saniye bekleniyor."
-                )
-
-                time.sleep(
-                    wait_time
-                )
-
-                wait_time = min(
-                    wait_time * 2,
-                    60,
-                )
-
-                continue
-
-            response.raise_for_status()
-
-            data = response.json()
-
-            # API error
-            if "error" in data:
-
-                error = data.get(
-                    "error",
-                    {},
-                )
-
-                code = error.get(
-                    "code",
-                    "",
-                )
-
-                info = error.get(
-                    "info",
-                    "",
-                )
-
-                print(
-                    f"Wikimedia API hatası: "
-                    f"{code} - {info}"
-                )
-
-                if code in {
-                    "maxlag",
-                    "ratelimited",
-                }:
-
-                    time.sleep(
-                        wait_time
-                    )
-
-                    wait_time = min(
-                        wait_time * 2,
-                        60,
-                    )
-
-                    continue
-
-                return None
-
-            # İstekler arasında bekleme
-            time.sleep(
-                WIKIMEDIA_DELAY
-            )
-
-            return data
-
-        except (
-            requests.RequestException,
-            ValueError,
-        ) as exc:
-
-            print(
-                f"Wikimedia istek hatası "
-                f"(deneme {attempt}/{MAX_RETRIES}): "
-                f"{exc}"
-            )
-
-            if attempt >= MAX_RETRIES:
-                return None
-
-            time.sleep(
-                wait_time
-            )
-
-            wait_time = min(
-                wait_time * 2,
-                60,
-            )
-
-    return None
-
-
-# ============================================================
-# COMMONS ARAMA
-# ============================================================
-
-def commons_search(query):
+def get_imageinfo(titles):
+    if not titles:
+        return {}
 
     params = {
         "action": "query",
-        "format": "json",
-
-        "generator": "search",
-
-        "gsrsearch": query,
-        "gsrnamespace": 6,
-        "gsrlimit": 8,
-
         "prop": "imageinfo",
-
-        "iiprop": "url",
-
-        "iiurlwidth": 1000,
-
-        "maxlag": 5,
+        "titles": "|".join(titles),
+        "iiprop": (
+            "url|mime|size|extmetadata"
+        ),
+        "iiurlwidth": "1600",
     }
 
-    data = wikipedia_request(
-        params
-    )
+    data = commons_api(params)
 
-    if not data:
-        return []
+    result = {}
 
     pages = (
-        data.get("query", {})
-        .get("pages", {})
+        data
+        .get("query", {})
+        .get("pages", [])
     )
 
-    results = []
+    for page in pages:
 
-    for page in pages.values():
+        title = page.get(
+            "title",
+            ""
+        )
 
-        imageinfo = (
-            page.get("imageinfo")
-            or []
+        imageinfo = page.get(
+            "imageinfo",
+            []
         )
 
         if not imageinfo:
@@ -1315,72 +1129,314 @@ def commons_search(query):
 
         info = imageinfo[0]
 
-        url = (
-            info.get("thumburl")
-            or info.get("url")
+        result[title] = info
+
+    return result
+
+
+def search_commons(query):
+    """
+    Commons'ta dosya namespace'inde arama yapar.
+    """
+
+    params = {
+        "action": "query",
+        "list": "search",
+        "srnamespace": "6",
+        "srsearch": query,
+        "srwhat": "title",
+        "srsort": "relevance",
+        "srlimit": str(
+            MAX_SEARCH_RESULTS
+        ),
+        "srprop": "size",
+    }
+
+    data = commons_api(params)
+
+    return data.get(
+        "query",
+        {}
+    ).get(
+        "search",
+        []
+    )
+
+
+def candidate_score(
+    title,
+    info,
+    site_name,
+    countries
+):
+    """
+    Commons adayına kalite/alaka puanı verir.
+    """
+
+    title_norm = normalize_text(
+        title
+    )
+
+    site_norm = normalize_text(
+        site_name
+    )
+
+    score = 0
+
+    # ------------------------------------------------------
+    # Dosya türü
+    # ------------------------------------------------------
+
+    mime = (
+        info
+        .get("mime", "")
+        .lower()
+    )
+
+    if mime not in ALLOWED_MIMES:
+        return -10000
+
+    # ------------------------------------------------------
+    # Kötü dosya adı
+    # ------------------------------------------------------
+
+    if is_bad_filename(title):
+        return -10000
+
+    # ------------------------------------------------------
+    # Site adı
+    # ------------------------------------------------------
+
+    site_tokens = split_tokens(
+        site_name
+    )
+
+    matched_site_tokens = 0
+
+    for token in site_tokens:
+
+        if token in title_norm:
+            matched_site_tokens += 1
+            score += 8
+
+    if site_norm and site_norm in title_norm:
+        score += 60
+
+    if matched_site_tokens >= 3:
+        score += 30
+
+    if matched_site_tokens >= 5:
+        score += 20
+
+    # ------------------------------------------------------
+    # Ülke adı
+    # ------------------------------------------------------
+
+    for country in countries:
+
+        country_norm = normalize_text(
+            country
         )
 
-        if not url:
-            continue
+        country_tokens = split_tokens(
+            country
+        )
 
-        results.append({
-            "title": page.get(
-                "title",
-                "",
-            ),
-            "url": url,
-        })
+        if (
+            country_norm
+            and country_norm in title_norm
+        ):
+            score += 20
 
-    return results
+        for token in country_tokens:
+            if token in title_norm:
+                score += 3
 
+        iso = ISO_CODES.get(
+            country_norm
+        )
 
-# ============================================================
-# UNESCO GÖRSELİ ARA
-# ============================================================
+        if iso and iso in title_norm:
+            score += 2
 
-def search_site_image(site):
+    # ------------------------------------------------------
+    # UNESCO kelimesi
+    # ------------------------------------------------------
 
-    name = site.get(
-        "name",
-        "",
+    if "unesco" in title_norm:
+        score += 10
+
+    if "world heritage" in title_norm:
+        score += 8
+
+    # ------------------------------------------------------
+    # Boyut
+    # ------------------------------------------------------
+
+    try:
+        width = int(
+            info.get("width", 0)
+        )
+
+        height = int(
+            info.get("height", 0)
+        )
+
+        if width >= 1000 and height >= 600:
+            score += 15
+
+        elif width >= 700 and height >= 400:
+            score += 8
+
+        elif width < 400 or height < 300:
+            score -= 20
+
+    except Exception:
+        pass
+
+    # ------------------------------------------------------
+    # Açıklama
+    # ------------------------------------------------------
+
+    metadata = info.get(
+        "extmetadata",
+        {}
     )
 
-    countries = site.get(
-        "countries",
-        [],
+    description = ""
+
+    for key in [
+        "ImageDescription",
+        "ObjectName",
+        "Categories",
+    ]:
+
+        value = metadata.get(
+            key,
+            {}
+        )
+
+        if isinstance(value, dict):
+            value = value.get(
+                "value",
+                ""
+            )
+
+        if value:
+            description += " "
+            description += clean_text(
+                value
+            )
+
+    description_norm = normalize_text(
+        description
     )
 
-    country = (
-        countries[0]
-        if countries
-        else ""
+    if site_norm and site_norm in description_norm:
+        score += 35
+
+    if "unesco" in description_norm:
+        score += 8
+
+    if "world heritage" in description_norm:
+        score += 8
+
+    return score
+
+
+def get_license(info):
+    metadata = info.get(
+        "extmetadata",
+        {}
     )
+
+    possible_keys = [
+        "LicenseShortName",
+        "License",
+        "UsageTerms",
+    ]
+
+    for key in possible_keys:
+
+        value = metadata.get(
+            key,
+            {}
+        )
+
+        if isinstance(value, dict):
+            value = value.get(
+                "value",
+                ""
+            )
+
+        value = clean_text(
+            value
+        )
+
+        if value:
+            return value
+
+    return ""
+
+
+def is_reusable_license(license_text):
+    normalized = normalize_text(
+        license_text
+    )
+
+    if not normalized:
+        return False
+
+    allowed = [
+        "public domain",
+        "cc0",
+        "cc by",
+        "cc by sa",
+        "cc by-sa",
+        "creative commons attribution",
+        "creative commons attribution sharealike",
+    ]
+
+    for item in allowed:
+
+        if normalize_text(item) in normalized:
+            return True
+
+    return False
+
+
+def find_best_commons_image(
+    site_name,
+    countries
+):
 
     queries = []
 
-    if country:
+    # Önce tam site adına yakın arama
+    queries.append(
+        f'"{site_name}"'
+    )
 
-        queries.append(
-            f"{name} {country} UNESCO World Heritage"
+    # UNESCO ile ikinci arama
+    queries.append(
+        f'"{site_name}" UNESCO'
+    )
+
+    # Çok uzun isimlerde daha genel arama
+    tokens = split_tokens(
+        site_name
+    )
+
+    if len(tokens) >= 3:
+        short_query = " ".join(
+            tokens[:6]
         )
 
         queries.append(
-            f"{name} {country} UNESCO"
+            short_query
         )
 
-    queries.append(
-        f"{name} UNESCO World Heritage"
-    )
-
-    queries.append(
-        f"{name} UNESCO"
-    )
-
-    queries.append(
-        name
-    )
-
-    seen_urls = set()
+    all_candidates = {}
 
     for query in queries:
 
@@ -1388,604 +1444,852 @@ def search_site_image(site):
             f"  Commons araması: {query}"
         )
 
-        results = commons_search(
-            query
-        )
-
-        for result in results:
-
-            url = result.get(
-                "url",
-                "",
-            )
-
-            if not url:
-                continue
-
-            if url in seen_urls:
-                continue
-
-            seen_urls.add(url)
-
-            return result
-
-    return None
-
-
-# ============================================================
-# GÖRSEL KAYDET
-# ============================================================
-
-def save_jpg(
-    url,
-    destination,
-):
-
-    headers = {
-        "User-Agent": USER_AGENT,
-        "Accept": "image/*,*/*",
-    }
-
-    wait_time = 5
-
-    for attempt in range(
-        1,
-        MAX_RETRIES + 1,
-    ):
-
         try:
-
-            response = requests.get(
-                url,
-                headers=headers,
-                timeout=REQUEST_TIMEOUT,
+            results = search_commons(
+                query
             )
-
-            if response.status_code == 429:
-
-                retry_after = (
-                    response.headers.get(
-                        "Retry-After"
-                    )
-                )
-
-                if retry_after:
-
-                    try:
-                        wait = max(
-                            5,
-                            int(retry_after),
-                        )
-
-                    except ValueError:
-                        wait = wait_time
-
-                else:
-                    wait = wait_time
-
-                print(
-                    f"  Görsel 429 -> "
-                    f"{wait} saniye bekleniyor."
-                )
-
-                time.sleep(wait)
-
-                wait_time = min(
-                    wait_time * 2,
-                    60,
-                )
-
-                continue
-
-            if response.status_code in {
-                500,
-                502,
-                503,
-                504,
-            }:
-
-                print(
-                    f"  Görsel HTTP "
-                    f"{response.status_code} -> "
-                    f"{wait_time} saniye bekleniyor."
-                )
-
-                time.sleep(
-                    wait_time
-                )
-
-                wait_time = min(
-                    wait_time * 2,
-                    60,
-                )
-
-                continue
-
-            response.raise_for_status()
-
-            image = Image.open(
-                BytesIO(
-                    response.content
-                )
-            )
-
-            if (
-                image.width < 200
-                or image.height < 200
-            ):
-
-                print(
-                    "  Görsel çok küçük:"
-                    f" {image.width}x{image.height}"
-                )
-
-                return False
-
-            image = image.convert(
-                "RGB"
-            )
-
-            image.save(
-                destination,
-                "JPEG",
-                quality=88,
-                optimize=True,
-            )
-
-            return True
 
         except Exception as exc:
 
             print(
-                f"  Görsel kaydetme hatası "
-                f"(deneme {attempt}/{MAX_RETRIES}): "
-                f"{exc}"
+                f"  [UYARI] Commons arama "
+                f"hatası: {exc}"
             )
 
-            if attempt >= MAX_RETRIES:
-                return False
+            continue
 
-            time.sleep(
-                wait_time
+        if not results:
+            continue
+
+        titles = []
+
+        for item in results:
+
+            title = item.get(
+                "title",
+                ""
             )
 
-            wait_time = min(
-                wait_time * 2,
-                60,
+            if not title:
+                continue
+
+            if is_bad_filename(title):
+                continue
+
+            titles.append(
+                title
             )
 
-    return False
+        if not titles:
+            continue
 
+        try:
+            imageinfo = get_imageinfo(
+                titles
+            )
 
-# ============================================================
-# DOSYA ADI
-# ============================================================
+        except Exception as exc:
 
-def build_site_filename(site):
+            print(
+                f"  [UYARI] Görsel bilgisi "
+                f"alınamadı: {exc}"
+            )
 
-    name = clean_filename(
-        site.get(
-            "name",
-            "Unknown Site",
+            continue
+
+        for title, info in imageinfo.items():
+
+            mime = info.get(
+                "mime",
+                ""
+            ).lower()
+
+            if mime not in ALLOWED_MIMES:
+                continue
+
+            score = candidate_score(
+                title,
+                info,
+                site_name,
+                countries
+            )
+
+            if score <= -1000:
+                continue
+
+            # Aynı dosya birden fazla aramada
+            # bulunursa en yüksek puanı tut.
+            if (
+                title not in all_candidates
+                or score
+                > all_candidates[title]["score"]
+            ):
+
+                all_candidates[title] = {
+                    "title": title,
+                    "info": info,
+                    "score": score,
+                    "query": query,
+                }
+
+        # İlk aramada güçlü aday bulduysak
+        # gereksiz ikinci/üçüncü aramaları yapma.
+        if all_candidates:
+
+            best = max(
+                all_candidates.values(),
+                key=lambda x: x["score"]
+            )
+
+            if best["score"] >= 70:
+                break
+
+    if not all_candidates:
+        return None
+
+    ranked = sorted(
+        all_candidates.values(),
+        key=lambda x: x["score"],
+        reverse=True
+    )
+
+    # Lisansı uygun olan adayları önceliklendir.
+    reusable = [
+        candidate
+        for candidate in ranked
+        if is_reusable_license(
+            get_license(
+                candidate["info"]
+            )
         )
+    ]
+
+    if reusable:
+        ranked = reusable
+
+    best = ranked[0]
+
+    # Çok düşük alakalı sonuçları kaydetme.
+    if best["score"] < 25:
+
+        print(
+            f"  [ATLANDI] Yeterli alakalı "
+            f"görsel bulunamadı."
+        )
+
+        print(
+            f"  En iyi aday puanı: "
+            f"{best['score']}"
+        )
+
+        return None
+
+    title = best["title"]
+    info = best["info"]
+
+    print(
+        f"  Bulunan görsel: {title}"
     )
 
-    countries = site.get(
-        "countries",
-        [],
+    print(
+        f"  Puan: {best['score']}"
     )
 
-    country = (
-        countries[0]
-        if countries
-        else "Unknown"
+    license_text = get_license(
+        info
     )
 
-    country = clean_filename(
-        country
+    print(
+        f"  Lisans: "
+        f"{license_text or 'Bilinmiyor'}"
     )
 
-    return (
-        f"{name} - {country}.jpg"
+    return {
+        "title": title,
+        "info": info,
+        "score": best["score"],
+        "query": best["query"],
+    }
+
+
+# ==========================================================
+# GÖRSEL İNDİRME
+# ==========================================================
+
+def get_download_url(info):
+    """
+    Wikimedia'nin thumbnail URL'sini
+    tercih eder. Orijinal yoksa URL'ye düşer.
+    """
+
+    url = info.get(
+        "thumburl"
     )
 
+    if url:
+        return url
 
-# ============================================================
-# PARÇA ARALIĞI
-# ============================================================
+    url = info.get(
+        "url"
+    )
 
-def get_part_range(
-    mode,
-    total,
+    return url
+
+
+def download_and_convert(
+    url,
+    output_path
 ):
+    response = requests.get(
+        url,
+        timeout=REQUEST_TIMEOUT,
+        headers={
+            "User-Agent": (
+                "PieceOfPast-UNESCO-Downloader/1.0"
+            )
+        }
+    )
 
-    if total <= 0:
-        return 0, 0
+    response.raise_for_status()
 
-    part_size = (
-        total + PART_COUNT - 1
-    ) // PART_COUNT
+    content = response.content
 
-    if mode == "unesco-1":
-
-        start = 0
-        end = min(
-            part_size,
-            total,
+    if not content:
+        raise ValueError(
+            "Boş dosya indirildi."
         )
 
-    elif mode == "unesco-2":
+    # Gerçekten görüntü mü?
+    image = Image.open(
+        io.BytesIO(content)
+    )
 
-        start = part_size
-        end = min(
-            part_size * 2,
-            total,
+    image.load()
+
+    # RGB'ye çevir
+    if image.mode in {
+        "RGBA",
+        "LA",
+        "P",
+    }:
+
+        background = Image.new(
+            "RGB",
+            image.size,
+            "white"
         )
 
-    elif mode == "unesco-3":
+        if image.mode == "P":
+            image = image.convert(
+                "RGBA"
+            )
 
-        start = part_size * 2
-        end = total
+        if image.mode in {
+            "RGBA",
+            "LA",
+        }:
+
+            background.paste(
+                image,
+                mask=image.getchannel(
+                    "A"
+                )
+            )
+
+            image = background
+
+        else:
+            image = image.convert(
+                "RGB"
+            )
 
     else:
+        image = image.convert(
+            "RGB"
+        )
 
-        raise RuntimeError(
+    os.makedirs(
+        os.path.dirname(output_path),
+        exist_ok=True
+    )
+
+    image.save(
+        output_path,
+        "JPEG",
+        quality=92,
+        optimize=True
+    )
+
+    return image.size
+
+
+# ==========================================================
+# KAYNAK BİLGİLERİ
+# ==========================================================
+
+def load_sources():
+    if not os.path.exists(
+        SOURCES_FILE
+    ):
+        return {}
+
+    try:
+
+        with open(
+            SOURCES_FILE,
+            "r",
+            encoding="utf-8"
+        ) as file:
+
+            data = json.load(
+                file
+            )
+
+            if isinstance(data, dict):
+                return data
+
+    except Exception as exc:
+
+        print(
+            f"[UYARI] image_sources.json "
+            f"okunamadı: {exc}"
+        )
+
+    return {}
+
+
+def save_sources(sources):
+
+    os.makedirs(
+        DATA_DIR,
+        exist_ok=True
+    )
+
+    with open(
+        SOURCES_FILE,
+        "w",
+        encoding="utf-8"
+    ) as file:
+
+        json.dump(
+            sources,
+            file,
+            ensure_ascii=False,
+            indent=2
+        )
+
+
+def get_author(info):
+    metadata = info.get(
+        "extmetadata",
+        {}
+    )
+
+    for key in [
+        "Artist",
+        "Credit",
+        "Author",
+    ]:
+
+        value = metadata.get(
+            key,
+            {}
+        )
+
+        if isinstance(value, dict):
+            value = value.get(
+                "value",
+                ""
+            )
+
+        value = clean_text(
+            value
+        )
+
+        if value:
+            # HTML taglerini basitçe temizle
+            value = re.sub(
+                r"<[^>]+>",
+                "",
+                value
+            )
+
+            return html.unescape(
+                value
+            )
+
+    return ""
+
+
+def add_source_record(
+    sources,
+    output_filename,
+    record,
+    candidate
+):
+
+    info = candidate["info"]
+
+    title = candidate["title"]
+
+    sources[output_filename] = {
+        "site": record["site"],
+        "countries": record["countries"],
+        "file": output_filename,
+        "source": "Wikimedia Commons",
+        "commons_file": title,
+        "source_url": info.get(
+            "descriptionurl",
+            ""
+        ),
+        "image_url": info.get(
+            "url",
+            ""
+        ),
+        "author": get_author(
+            info
+        ),
+        "license": get_license(
+            info
+        ),
+        "search_query": candidate[
+            "query"
+        ],
+        "match_score": candidate[
+            "score"
+        ],
+    }
+
+
+# ==========================================================
+# PARÇA HESAPLAMA
+# ==========================================================
+
+def get_chunk_range(
+    total,
+    chunk
+):
+    """
+    3 parçaya mümkün olduğunca eşit böler.
+
+    Örnek:
+    1273 -> 425 / 425 / 423
+    """
+
+    base = total // 3
+    remainder = total % 3
+
+    sizes = []
+
+    for i in range(3):
+
+        size = base
+
+        if i < remainder:
+            size += 1
+
+        sizes.append(
+            size
+        )
+
+    start = sum(
+        sizes[:chunk - 1]
+    )
+
+    end = start + sizes[
+        chunk - 1
+    ]
+
+    return start, end, sizes
+
+
+def get_requested_chunk():
+    if len(sys.argv) < 2:
+        print(
+            "Kullanım:"
+        )
+        print(
+            "  python download_assets.py unesco-1"
+        )
+        print(
+            "  python download_assets.py unesco-2"
+        )
+        print(
+            "  python download_assets.py unesco-3"
+        )
+
+        sys.exit(1)
+
+    mode = sys.argv[1].strip().lower()
+
+    mapping = {
+        "unesco-1": 1,
+        "unesco-2": 2,
+        "unesco-3": 3,
+    }
+
+    if mode not in mapping:
+
+        print(
             f"Geçersiz mod: {mode}"
         )
 
-    return start, end
+        sys.exit(1)
+
+    return mode, mapping[mode]
 
 
-# ============================================================
-# UNESCO GÖRSELLERİNİ İNDİR
-# ============================================================
+# ==========================================================
+# ANA PROGRAM
+# ==========================================================
 
-def download_site_images(
-    sites,
-    start,
-    end,
-    mode,
-):
+def main():
 
-    selected = sites[
+    print("=" * 70)
+    print("PIECE OF PAST")
+    print("UNESCO WORLD HERITAGE ASSET DOWNLOADER")
+    print("=" * 70)
+
+    mode, chunk_number = (
+        get_requested_chunk()
+    )
+
+    print(
+        f"Mod: {mode}"
+    )
+
+    # ------------------------------------------------------
+    # UNESCO XML
+    # ------------------------------------------------------
+
+    try:
+        xml_bytes = (
+            download_unesco_xml()
+        )
+
+        records = parse_unesco_xml(
+            xml_bytes
+        )
+
+    except Exception as exc:
+
+        print()
+        print(
+            "[KRİTİK HATA] UNESCO XML "
+            f"işlenemedi: {exc}"
+        )
+
+        sys.exit(1)
+
+    if not records:
+
+        print(
+            "[KRİTİK HATA] UNESCO kaydı "
+            "bulunamadı."
+        )
+
+        sys.exit(1)
+
+    # ------------------------------------------------------
+    # BAYRAKLAR
+    # ------------------------------------------------------
+
+    if not verify_country_flags(
+        records
+    ):
+        sys.exit(1)
+
+    # ------------------------------------------------------
+    # 3 PARÇA
+    # ------------------------------------------------------
+
+    total = len(records)
+
+    start, end, sizes = (
+        get_chunk_range(
+            total,
+            chunk_number
+        )
+    )
+
+    chunk_records = records[
         start:end
     ]
 
-    print()
     print("=" * 70)
+    print(f"{mode} BAŞLIYOR")
+    print(
+        f"Toplam UNESCO kaydı: {total}"
+    )
 
     print(
-        f"{mode} BAŞLIYOR"
+        f"3 parça dağılımı: "
+        f"{sizes[0]} / "
+        f"{sizes[1]} / "
+        f"{sizes[2]}"
     )
 
     print(
         f"Aralık: "
-        f"{start + 1}-{end} / {len(sites)}"
+        f"{start + 1}-{end} / {total}"
     )
 
     print(
         f"Bu parçada: "
-        f"{len(selected)} kayıt"
+        f"{len(chunk_records)} kayıt"
     )
 
     print("=" * 70)
-    print()
+
+    # ------------------------------------------------------
+    # KLASÖRLER
+    # ------------------------------------------------------
+
+    os.makedirs(
+        UNESCO_DIR,
+        exist_ok=True
+    )
+
+    os.makedirs(
+        DATA_DIR,
+        exist_ok=True
+    )
+
+    # ------------------------------------------------------
+    # KAYNAK DOSYASI
+    # ------------------------------------------------------
+
+    sources = load_sources()
 
     downloaded = 0
     skipped = 0
-    failed = 0
+    errors = 0
 
-    for absolute_index, site in enumerate(
-        selected,
-        start=start + 1,
+    # ------------------------------------------------------
+    # SİTELER
+    # ------------------------------------------------------
+
+    for local_index, record in enumerate(
+        chunk_records,
+        start=1
     ):
 
-        filename = build_site_filename(
-            site
+        global_index = start + local_index
+
+        site_name = record[
+            "site"
+        ]
+
+        countries = record[
+            "countries"
+        ]
+
+        output_filename = (
+            make_image_filename(
+                record
+            )
         )
 
-        destination = (
-            SITE_DIR / filename
+        output_path = os.path.join(
+            UNESCO_DIR,
+            output_filename
+        )
+
+        print()
+        print(
+            "=" * 70
         )
 
         print(
-            f"[{absolute_index}/{len(sites)}] "
-            f"{site.get('name', '')}"
+            f"[{global_index}/{total}] "
+            f"{site_name}"
         )
 
-        # ----------------------------------------------------
-        # Zaten varsa indirme.
-        # ----------------------------------------------------
+        print(
+            f"  Ülke: "
+            f"{', '.join(countries) or 'Unknown'}"
+        )
 
-        if (
-            destination.exists()
-            and destination.stat().st_size > 0
+        print(
+            f"  Hedef: "
+            f"{output_filename}"
+        )
+
+        # --------------------------------------------------
+        # Mevcut dosya varsa tekrar indirme
+        # --------------------------------------------------
+
+        if os.path.exists(
+            output_path
         ):
 
             print(
-                "  [SKIP] Görsel zaten mevcut."
+                "  [MEVCUT] Dosya zaten var."
+            )
+
+            downloaded += 1
+
+            continue
+
+        # --------------------------------------------------
+        # Commons
+        # --------------------------------------------------
+
+        try:
+
+            candidate = (
+                find_best_commons_image(
+                    site_name,
+                    countries
+                )
+            )
+
+        except Exception as exc:
+
+            print(
+                f"  [HATA] Commons işlemi: "
+                f"{exc}"
+            )
+
+            errors += 1
+            continue
+
+        if not candidate:
+
+            print(
+                "  [ATLANDI] Uygun görsel bulunamadı."
             )
 
             skipped += 1
 
             continue
 
-        # ----------------------------------------------------
-        # Commons ara
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # Görsel URL
+        # --------------------------------------------------
 
-        result = search_site_image(
-            site
+        image_url = get_download_url(
+            candidate["info"]
         )
 
-        if not result:
+        if not image_url:
 
             print(
-                "  [HATA] Uygun Commons görseli bulunamadı."
+                "  [ATLANDI] Görsel URL'si yok."
             )
 
-            failed += 1
+            skipped += 1
 
             continue
 
         print(
-            f"  Bulunan görsel: "
-            f"{result.get('title', '')}"
+            f"  İndiriliyor: "
+            f"{image_url}"
         )
 
-        # ----------------------------------------------------
-        # İndir
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # İndir + JPG yap
+        # --------------------------------------------------
 
-        success = save_jpg(
-            result["url"],
-            destination,
-        )
+        try:
 
-        if success:
+            size = download_and_convert(
+                image_url,
+                output_path
+            )
 
             print(
-                f"  [OK] {destination.name}"
+                f"  [OK] {site_name} - "
+                f"{get_primary_country(record)}.jpg"
+            )
+
+            print(
+                f"  Boyut: "
+                f"{size[0]}x{size[1]}"
+            )
+
+            add_source_record(
+                sources,
+                output_filename,
+                record,
+                candidate
+            )
+
+            save_sources(
+                sources
             )
 
             downloaded += 1
 
-        else:
+        except Exception as exc:
 
             print(
-                "  [HATA] Görsel indirilemedi."
+                f"  [HATA] Görsel indirilemedi: "
+                f"{exc}"
             )
 
-            failed += 1
+            # Hatalı/yarım dosya kaldıysa sil
+            if os.path.exists(
+                output_path
+            ):
+                try:
+                    os.remove(
+                        output_path
+                    )
+                except Exception:
+                    pass
+
+            errors += 1
+
+    # ------------------------------------------------------
+    # SONUÇ
+    # ------------------------------------------------------
 
     print()
     print("=" * 70)
+    print(f"{mode} TAMAMLANDI")
+    print("=" * 70)
 
     print(
-        f"{mode} TAMAMLANDI"
+        f"Toplam kayıt: {len(chunk_records)}"
     )
 
     print(
-        f"Yeni indirilen : {downloaded}"
+        f"İndirilen/mevcut: {downloaded}"
     )
 
     print(
-        f"Zaten mevcut   : {skipped}"
+        f"Atlanan: {skipped}"
     )
 
     print(
-        f"Başarısız       : {failed}"
+        f"Hata: {errors}"
+    )
+
+    print()
+    print(
+        f"Kaynak dosyası: {SOURCES_FILE}"
+    )
+
+    print(
+        "Not: 'ülkeler' klasöründeki "
+        "manuel bayraklara dokunulmadı."
     )
 
     print("=" * 70)
-    print()
 
+    # Eğer bütün kayıtlar başarısızsa
+    # workflow'un sessizce başarılı görünmesini engelle.
+    if downloaded == 0 and len(
+        chunk_records
+    ) > 0:
 
-# ============================================================
-# JSON OLUŞTUR
-# ============================================================
-
-def create_json(sites):
-
-    site_files = {}
-
-    if SITE_DIR.exists():
-
-        for path in SITE_DIR.iterdir():
-
-            if not path.is_file():
-                continue
-
-            if path.suffix.lower() != ".jpg":
-                continue
-
-            relative = str(
-                path.relative_to(ROOT)
-            ).replace(
-                "\\",
-                "/",
-            )
-
-            site_files[
-                path.name
-            ] = relative
-
-    unesco_data = []
-
-    for site in sites:
-
-        filename = build_site_filename(
-            site
+        print(
+            "[KRİTİK] Bu parçada hiçbir "
+            "görsel indirilemedi."
         )
 
-        unesco_data.append({
-            "name": site.get(
-                "name",
-                "",
-            ),
-
-            "countries": site.get(
-                "countries",
-                [],
-            ),
-
-            "image": site_files.get(
-                filename
-            ),
-        })
-
-    with open(
-        DATA_DIR / "unesco.json",
-        "w",
-        encoding="utf-8",
-    ) as f:
-
-        json.dump(
-            unesco_data,
-            f,
-            ensure_ascii=False,
-            indent=2,
-        )
-
-    image_sources = {}
-
-    for filename in site_files:
-
-        image_sources[
-            filename
-        ] = {
-            "source": "Wikimedia Commons"
-        }
-
-    with open(
-        DATA_DIR / "image_sources.json",
-        "w",
-        encoding="utf-8",
-    ) as f:
-
-        json.dump(
-            image_sources,
-            f,
-            ensure_ascii=False,
-            indent=2,
-        )
-
-    print(
-        "data/unesco.json oluşturuldu."
-    )
-
-    print(
-        "data/image_sources.json oluşturuldu."
-    )
-
-
-# ============================================================
-# MOD
-# ============================================================
-
-def get_mode():
-
-    if len(sys.argv) < 2:
-
-        raise RuntimeError(
-            "Mod belirtilmedi."
-        )
-
-    mode = (
-        sys.argv[1]
-        .strip()
-        .lower()
-    )
-
-    if mode not in {
-        "unesco-1",
-        "unesco-2",
-        "unesco-3",
-    }:
-
-        raise RuntimeError(
-            "Geçersiz mod: "
-            f"{mode}"
-        )
-
-    return mode
-
-
-# ============================================================
-# MAIN
-# ============================================================
-
-def main():
-
-    mode = get_mode()
-
-    print()
-    print("=" * 70)
-    print(
-        "PIECE OF PAST"
-    )
-    print(
-        "UNESCO WORLD HERITAGE ASSET DOWNLOADER"
-    )
-    print("=" * 70)
-
-    print(
-        f"Mod: {mode}"
-    )
-
-    print()
-
-    # --------------------------------------------------------
-    # 1. UNESCO listesini al
-    # --------------------------------------------------------
-
-    sites = parse_unesco_xml()
-
-    # --------------------------------------------------------
-    # 2. GitHub'a senin yüklediğin bayrakları kontrol et.
-    #
-    # BURADA HİÇBİR DOSYA DEĞİŞTİRİLMEZ.
-    # --------------------------------------------------------
-
-    verify_country_flags(
-        sites
-    )
-
-    # --------------------------------------------------------
-    # 3. Bu parçanın aralığını hesapla
-    # --------------------------------------------------------
-
-    start, end = get_part_range(
-        mode,
-        len(sites),
-    )
-
-    # --------------------------------------------------------
-    # 4. UNESCO görsellerini indir
-    # --------------------------------------------------------
-
-    download_site_images(
-        sites,
-        start,
-        end,
-        mode,
-    )
-
-    # --------------------------------------------------------
-    # 5. JSON
-    # --------------------------------------------------------
-
-    create_json(
-        sites
-    )
-
-    print()
-    print("=" * 70)
-    print(
-        f"{mode} BAŞARIYLA TAMAMLANDI"
-    )
-    print("=" * 70)
-    print()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
