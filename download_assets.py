@@ -4,11 +4,11 @@ import re
 import json
 import time
 import html
-import hashlib
 import unicodedata
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import quote
+from io import BytesIO
 
 import requests
 from PIL import Image
@@ -21,28 +21,35 @@ from PIL import Image
 
 BASE_DIR = Path(__file__).resolve().parent
 
+COUNTRY_FLAG_DIR = BASE_DIR / "ülkeler"
 UNESCO_DIR = BASE_DIR / "unesco dünya mirasları"
-COUNTRY_DIR = BASE_DIR / "ülkeler"
 DATA_DIR = BASE_DIR / "data"
 
 UNESCO_XML_URL = "https://whc.unesco.org/en/list/xml/"
-
 COMMONS_API_URL = "https://commons.wikimedia.org/w/api.php"
-
-UNESCO_DIR.mkdir(parents=True, exist_ok=True)
-DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ============================================================
-# HTTP
+# KLASÖRLER
+# ============================================================
+
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+# UNESCO klasörünü burada oluşturuyoruz.
+# Böylece hiçbir görsel bulunmasa bile klasörün oluşması sağlanır.
+UNESCO_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ============================================================
+# HTTP SESSION
 # ============================================================
 
 SESSION = requests.Session()
 
 SESSION.headers.update({
     "User-Agent": (
-        "PIECE-OF-PAST-UNESCO-ASSET-DOWNLOADER/1.0 "
-        "(GitHub Actions; educational/game asset collection)"
+        "PIECE-OF-PAST-UNESCO-DOWNLOADER/2.0 "
+        "(GitHub Actions)"
     )
 })
 
@@ -250,37 +257,19 @@ ISO_CODES = {
 
 
 # ============================================================
-# COUNTRY NAME ALIASES
+# COUNTRY ALIASES
 # ============================================================
 
 COUNTRY_ALIASES = {
     "turkey": "Türkiye",
-    "türkiye": "Türkiye",
     "turkiye": "Türkiye",
+    "türkiye": "Türkiye",
 
-    "russian federation": "Russian Federation",
     "russia": "Russian Federation",
+    "russian federation": "Russian Federation",
 
-    "iran": "Iran",
-    "iran islamic republic of": "Iran",
-
-    "viet nam": "Viet Nam",
     "vietnam": "Viet Nam",
-
-    "venezuela": "Venezuela",
-    "venezuela bolivarian republic of": "Venezuela",
-
-    "bolivia": "Bolivia",
-    "bolivia plurinational state of": "Bolivia",
-
-    "tanzania": "United Republic of Tanzania",
-    "united republic of tanzania": "United Republic of Tanzania",
-
-    "laos": "Laos",
-    "lao people's democratic republic": "Laos",
-
-    "moldova": "Moldova",
-    "republic of moldova": "Moldova",
+    "viet nam": "Viet Nam",
 
     "czech republic": "Czechia",
     "czechia": "Czechia",
@@ -294,24 +283,35 @@ COUNTRY_ALIASES = {
     "cape verde": "Cabo Verde",
     "cabo verde": "Cabo Verde",
 
-    "iran islamic republic": "Iran",
+    "iran": "Iran",
+    "iran islamic republic of": "Iran",
+
+    "bolivia": "Bolivia",
+    "plurinational state of bolivia": "Bolivia",
+
+    "laos": "Laos",
+    "lao people's democratic republic": "Laos",
+
+    "moldova": "Moldova",
+    "republic of moldova": "Moldova",
 
     "brunei": "Brunei Darussalam",
-
-    "micronesia": "Micronesia",
-
-    "holy see": "Holy See",
 
     "united states": "United States of America",
     "usa": "United States of America",
 
-    "united kingdom": "United Kingdom",
     "uk": "United Kingdom",
+    "united kingdom": "United Kingdom",
+
+    "tanzania": "United Republic of Tanzania",
+
+    "venezuela": "Venezuela",
+    "bolivarian republic of venezuela": "Venezuela",
 }
 
 
 # ============================================================
-# HELPERS
+# TEXT HELPERS
 # ============================================================
 
 def clean_text(value):
@@ -321,6 +321,7 @@ def clean_text(value):
     value = html.unescape(str(value))
     value = value.replace("\r", " ")
     value = value.replace("\n", " ")
+
     value = re.sub(r"\s+", " ", value)
 
     return value.strip()
@@ -329,7 +330,11 @@ def clean_text(value):
 def normalize(value):
     value = clean_text(value).lower()
 
-    value = unicodedata.normalize("NFKD", value)
+    value = unicodedata.normalize(
+        "NFKD",
+        value
+    )
+
     value = "".join(
         c for c in value
         if not unicodedata.combining(c)
@@ -337,52 +342,17 @@ def normalize(value):
 
     value = value.replace("&", "and")
 
-    value = re.sub(r"[^a-z0-9]+", " ", value)
-
-    return re.sub(r"\s+", " ", value).strip()
-
-
-def safe_filename(value, max_length=160):
-    value = clean_text(value)
-
-    value = unicodedata.normalize("NFKD", value)
-    value = "".join(
-        c for c in value
-        if not unicodedata.combining(c)
+    value = re.sub(
+        r"[^a-z0-9]+",
+        " ",
+        value
     )
 
-    value = re.sub(r'[<>:"/\\|?*]', "", value)
-    value = re.sub(r"\s+", " ", value)
-    value = value.strip(" .")
-
-    if len(value) > max_length:
-        value = value[:max_length].rstrip()
-
-    return value
-
-
-def get_child_text(row, name):
-    element = row.find(name)
-
-    if element is None:
-        return ""
-
-    return clean_text(element.text)
-
-
-def parse_iso_codes(value):
-    if not value:
-        return []
-
-    result = []
-
-    for item in re.split(r"[,\s;]+", value):
-        code = item.strip().lower()
-
-        if code in ISO_CODES:
-            result.append(code)
-
-    return list(dict.fromkeys(result))
+    return re.sub(
+        r"\s+",
+        " ",
+        value
+    ).strip()
 
 
 def canonical_country_name(name):
@@ -391,55 +361,145 @@ def canonical_country_name(name):
     if not name:
         return ""
 
-    key = normalize(name)
+    normalized = normalize(name)
 
-    if key in COUNTRY_ALIASES:
-        return COUNTRY_ALIASES[key]
+    if normalized in COUNTRY_ALIASES:
+        return COUNTRY_ALIASES[normalized]
 
     for code, official_name in ISO_CODES.items():
-        if normalize(official_name) == key:
+        if normalize(official_name) == normalized:
             return official_name
 
     return name
 
 
+def safe_filename(name, max_length=170):
+    name = clean_text(name)
+
+    name = unicodedata.normalize(
+        "NFKD",
+        name
+    )
+
+    name = "".join(
+        c for c in name
+        if not unicodedata.combining(c)
+    )
+
+    name = re.sub(
+        r'[<>:"/\\|?*]',
+        "",
+        name
+    )
+
+    name = re.sub(
+        r"\s+",
+        " ",
+        name
+    )
+
+    name = name.strip(" .")
+
+    if len(name) > max_length:
+        name = name[:max_length].rstrip()
+
+    return name
+
+
 # ============================================================
-# COUNTRY DIRECTORY
+# UNESCO XML FIELD
 # ============================================================
 
-def find_country_directory(country_name):
+def child_text(row, field):
+    element = row.find(field)
+
+    if element is None:
+        return ""
+
+    return clean_text(element.text)
+
+
+# ============================================================
+# FLAG FILE MAP
+# ============================================================
+
+def build_flag_map():
     """
-    Finds the manually uploaded country directory.
+    ülkeler klasöründeki mevcut JPG bayrakları tarar.
 
-    IMPORTANT:
-    This function NEVER creates, deletes or changes country folders.
+    Örnek:
+        ülkeler/Albania.jpg
+
+    map:
+        "albania" -> Path(...)
     """
 
-    if not COUNTRY_DIR.exists():
-        return None
+    print("=" * 70)
+    print("MANUEL ÜLKE BAYRAKLARI TARANIYOR")
+    print("=" * 70)
 
-    canonical = canonical_country_name(country_name)
-    target = normalize(canonical)
+    if not COUNTRY_FLAG_DIR.exists():
+        raise RuntimeError(
+            "'ülkeler' klasörü bulunamadı."
+        )
 
-    candidates = []
+    flag_map = {}
 
-    for path in COUNTRY_DIR.iterdir():
-        if not path.is_dir():
+    for path in COUNTRY_FLAG_DIR.iterdir():
+
+        if not path.is_file():
             continue
 
-        candidates.append(path)
+        if path.suffix.lower() not in (
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".webp"
+        ):
+            continue
 
-        if normalize(path.name) == target:
-            return path
+        key = normalize(path.stem)
 
-    # Common Turkish / English naming variations
-    for path in candidates:
-        n = normalize(path.name)
+        if key:
+            flag_map[key] = path
 
-        if n == normalize(country_name):
-            return path
+    print(
+        f"Bulunan manuel bayrak dosyası: "
+        f"{len(flag_map)}"
+    )
 
-        if n == normalize(canonical):
+    return flag_map
+
+
+# ============================================================
+# COUNTRY FLAG MATCH
+# ============================================================
+
+def find_flag(country_name, flag_map):
+    canonical = canonical_country_name(
+        country_name
+    )
+
+    candidates = [
+        country_name,
+        canonical,
+    ]
+
+    for candidate in candidates:
+
+        key = normalize(candidate)
+
+        if key in flag_map:
+            return flag_map[key]
+
+    # Bazı isim farklılıkları için ters alias kontrolü
+    normalized_target = normalize(
+        canonical
+    )
+
+    for key, path in flag_map.items():
+
+        if key == normalized_target:
             return path
 
     return None
@@ -450,16 +510,21 @@ def find_country_directory(country_name):
 # ============================================================
 
 def download_unesco_xml():
+
     print("=" * 70)
     print("UNESCO DÜNYA MİRAS LİSTESİ XML İNDİRİLİYOR")
     print("=" * 70)
 
     response = SESSION.get(
         UNESCO_XML_URL,
-        timeout=60
+        timeout=90
     )
 
-    print(f"UNESCO HTTP durumu: {response.status_code}")
+    print(
+        f"UNESCO HTTP durumu: "
+        f"{response.status_code}"
+    )
+
     print(
         f"UNESCO XML boyutu: "
         f"{len(response.content):,} byte"
@@ -471,192 +536,287 @@ def download_unesco_xml():
 
 
 # ============================================================
-# UNESCO XML PARSER
+# UNESCO XML PARSE
 # ============================================================
 
 def parse_unesco_xml(xml_bytes):
+
     print("=" * 70)
     print("UNESCO XML PARSE EDİLİYOR")
     print("=" * 70)
 
-    root = ET.fromstring(xml_bytes)
+    root = ET.fromstring(
+        xml_bytes
+    )
 
-    print(f"XML root etiketi: {root.tag}")
+    print(
+        f"XML root etiketi: "
+        f"{root.tag}"
+    )
 
-    rows = root.findall(".//row")
+    rows = root.findall(
+        ".//row"
+    )
 
-    print(f"UNESCO kayıt sayısı: {len(rows)}")
+    print(
+        f"UNESCO kayıt sayısı: "
+        f"{len(rows)}"
+    )
 
     records = []
 
     for row in rows:
-        site = get_child_text(row, "site")
+
+        site = child_text(
+            row,
+            "site"
+        )
 
         if not site:
-            site = get_child_text(row, "name")
+            site = child_text(
+                row,
+                "name"
+            )
 
         if not site:
             continue
 
-        id_number = get_child_text(row, "id_number")
-        image_url = get_child_text(row, "image_url")
-        http_url = get_child_text(row, "http_url")
+        record = {
+            "id": child_text(
+                row,
+                "id_number"
+            ),
 
-        states = get_child_text(row, "states")
-        iso_code = get_child_text(row, "iso_code")
+            "site": site,
 
-        # ====================================================
-        # ASIL DÜZELTME:
-        #
-        # UNESCO XML:
-        #
-        # <states>Canada,United States of America</states>
-        # <iso_code>ca,us</iso_code>
-        #
-        # ====================================================
+            "states": child_text(
+                row,
+                "states"
+            ),
 
-        country_names = []
+            "iso_code": child_text(
+                row,
+                "iso_code"
+            ),
 
-        if states:
-            for country in re.split(r"\s*,\s*", states):
-                country = clean_text(country)
+            "image_url": child_text(
+                row,
+                "image_url"
+            ),
 
-                if country:
-                    country_names.append(
-                        canonical_country_name(country)
-                    )
+            "http_url": child_text(
+                row,
+                "http_url"
+            ),
 
-        country_names = list(
-            dict.fromkeys(country_names)
-        )
+            "category": child_text(
+                row,
+                "category"
+            ),
 
-        iso_codes = parse_iso_codes(iso_code)
+            "region": child_text(
+                row,
+                "region"
+            ),
 
-        # Eğer states alanı herhangi bir nedenle eksikse,
-        # iso_code üzerinden ülke isimlerini çıkar.
-        if not country_names and iso_codes:
-            for code in iso_codes:
-                country_names.append(
-                    ISO_CODES[code]
+            "latitude": child_text(
+                row,
+                "latitude"
+            ),
+
+            "longitude": child_text(
+                row,
+                "longitude"
+            ),
+        }
+
+        countries = []
+
+        # UNESCO XML'deki gerçek alan:
+        # states
+        if record["states"]:
+
+            parts = re.split(
+                r"\s*,\s*",
+                record["states"]
+            )
+
+            for country in parts:
+
+                country = clean_text(
+                    country
                 )
 
-        records.append({
-            "id": id_number,
-            "site": site,
-            "countries": country_names,
-            "iso_codes": iso_codes,
-            "image_url": image_url,
-            "http_url": http_url,
-            "category": get_child_text(row, "category"),
-            "region": get_child_text(row, "region"),
-            "latitude": get_child_text(row, "latitude"),
-            "longitude": get_child_text(row, "longitude"),
-        })
+                if country:
+                    countries.append(
+                        canonical_country_name(
+                            country
+                        )
+                    )
+
+        # states yoksa iso_code kullan
+        if not countries and record["iso_code"]:
+
+            codes = re.split(
+                r"[,\s;]+",
+                record["iso_code"]
+            )
+
+            for code in codes:
+
+                code = code.strip().lower()
+
+                if code in ISO_CODES:
+
+                    countries.append(
+                        ISO_CODES[code]
+                    )
+
+        record["countries"] = list(
+            dict.fromkeys(
+                countries
+            )
+        )
+
+        records.append(
+            record
+        )
 
     print(
         f"Başarıyla parse edilen kayıt: "
         f"{len(records)}"
     )
 
-    country_set = set()
+    all_countries = set()
 
     for record in records:
-        country_set.update(
-            record["countries"]
-        )
+
+        for country in record["countries"]:
+
+            all_countries.add(
+                country
+            )
 
     print(
         "UNESCO kayıtlarında bulunan farklı "
-        f"ülke sayısı: {len(country_set)}"
+        f"ülke sayısı: {len(all_countries)}"
     )
 
     return records
 
 
 # ============================================================
-# UNESCO VALIDATION
+# UNESCO DATA TEST
 # ============================================================
 
-def validate_unesco_data(records):
+def print_unesco_test(records):
+
     print("=" * 70)
     print("İLK 5 UNESCO KAYDI KONTROLÜ")
     print("=" * 70)
 
     for record in records[:5]:
+
         countries = ", ".join(
             record["countries"]
         )
 
         print(
             f"{record['site']} | "
-            f"Ülke: {countries or 'YOK'}"
+            f"Ülke: "
+            f"{countries or 'YOK'}"
         )
+
+
+# ============================================================
+# FLAG VALIDATION
+# ============================================================
+
+def validate_flags(records, flag_map):
 
     print("=" * 70)
     print("ÜLKE BAYRAKLARI KONTROLÜ")
     print("=" * 70)
 
-    country_set = set()
+    countries = set()
 
     for record in records:
-        country_set.update(
-            record["countries"]
-        )
 
-    print(
-        "UNESCO kayıtlarında bulunan farklı "
-        f"ülke sayısı: {len(country_set)}"
-    )
+        for country in record["countries"]:
+            countries.add(country)
 
-    if not country_set:
-        raise RuntimeError(
-            "UNESCO XML kayıtlarından ülke bilgisi "
-            "çıkarılamadı."
-        )
-
+    found = []
     missing = []
 
-    for country in sorted(country_set):
-        directory = find_country_directory(
-            country
+    for country in sorted(
+        countries,
+        key=lambda x: normalize(x)
+    ):
+
+        flag = find_flag(
+            country,
+            flag_map
         )
 
-        if directory is None:
+        if flag:
+            found.append(country)
+        else:
             missing.append(country)
 
     print(
-        f"UNESCO ülkelerinin {len(country_set)} "
-        f"tanesinden {len(country_set) - len(missing)} "
-        "tanesi 'ülkeler' klasöründe bulundu."
+        f"UNESCO ülke sayısı: "
+        f"{len(countries)}"
+    )
+
+    print(
+        f"Manuel bayrağı bulunan ülke: "
+        f"{len(found)}"
+    )
+
+    print(
+        f"Manuel bayrağı bulunamayan ülke: "
+        f"{len(missing)}"
     )
 
     if missing:
+
         print()
         print(
-            "UYARI: 'ülkeler' klasöründe bulunamayan "
-            "ülkeler:"
+            "Bayrağı bulunamayan ülkeler:"
         )
 
-        for country in missing[:50]:
-            print(f"  - {country}")
-
-        if len(missing) > 50:
+        for country in missing[:80]:
             print(
-                f"  ... ve {len(missing) - 50} ülke daha"
+                f"  - {country}"
             )
 
-        print()
-        print(
-            "Mevcut manuel bayrak klasörlerine "
-            "dokunulmayacak."
-        )
+        if len(missing) > 80:
+            print(
+                f"  ... "
+                f"{len(missing) - 80} ülke daha"
+            )
+
+    print()
+
+    print(
+        "Mevcut 'ülkeler' klasöründeki "
+        "bayraklara DOKUNULMAYACAK."
+    )
+
+    print(
+        "UNESCO görselleri ayrı klasöre "
+        "indirilecek."
+    )
+
+    return found, missing
 
 
 # ============================================================
-# CHUNK SYSTEM
+# CHUNK
 # ============================================================
 
-def get_chunk(records, mode):
+def split_chunks(records):
+
     total = len(records)
 
     base = total // 3
@@ -673,11 +833,19 @@ def get_chunk(records, mode):
     start = 0
 
     for size in sizes:
+
         chunks.append(
-            records[start:start + size]
+            records[
+                start:start + size
+            ]
         )
 
         start += size
+
+    return chunks
+
+
+def get_chunk(records, mode):
 
     mapping = {
         "unesco-1": 0,
@@ -686,42 +854,93 @@ def get_chunk(records, mode):
     }
 
     if mode not in mapping:
+
         raise ValueError(
             "Geçersiz mod. "
-            "unesco-1 / unesco-2 / unesco-3 kullan."
+            "unesco-1, unesco-2 veya unesco-3 kullan."
         )
 
-    index = mapping[mode]
+    chunks = split_chunks(
+        records
+    )
 
-    selected = chunks[index]
+    index = mapping[mode]
 
     print("=" * 70)
     print("UNESCO PARÇA BİLGİSİ")
     print("=" * 70)
 
-    print(f"Toplam UNESCO kaydı: {total}")
-    print(f"1. parça: {len(chunks[0])}")
-    print(f"2. parça: {len(chunks[1])}")
-    print(f"3. parça: {len(chunks[2])}")
     print(
-        f"Çalıştırılan parça: {mode} "
-        f"({len(selected)} kayıt)"
+        f"Toplam kayıt: {len(records)}"
     )
 
-    return selected
+    print(
+        f"1. parça: {len(chunks[0])}"
+    )
+
+    print(
+        f"2. parça: {len(chunks[1])}"
+    )
+
+    print(
+        f"3. parça: {len(chunks[2])}"
+    )
+
+    print(
+        f"Çalıştırılan parça: "
+        f"{mode}"
+    )
+
+    print(
+        f"Bu parçada işlenecek kayıt: "
+        f"{len(chunks[index])}"
+    )
+
+    return chunks[index]
 
 
 # ============================================================
-# EXISTING IMAGE CHECK
+# UNESCO COUNTRY DIRECTORY
 # ============================================================
 
-def image_already_exists(country_dir, site):
-    if country_dir is None:
+def get_unesco_country_dir(country):
+
+    country = canonical_country_name(
+        country
+    )
+
+    directory = (
+        UNESCO_DIR / safe_filename(
+            country
+        )
+    )
+
+    directory.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    return directory
+
+
+# ============================================================
+# EXISTING UNESCO IMAGE
+# ============================================================
+
+def find_existing_image(
+    country_dir,
+    site
+):
+
+    target = normalize(
+        site
+    )
+
+    if not country_dir.exists():
         return None
 
-    target = normalize(site)
-
     for path in country_dir.iterdir():
+
         if not path.is_file():
             continue
 
@@ -733,17 +952,56 @@ def image_already_exists(country_dir, site):
         ):
             continue
 
-        if normalize(path.stem) == target:
+        if normalize(
+            path.stem
+        ) == target:
+
             return path
 
     return None
 
 
 # ============================================================
+# COMMONS LICENSE
+# ============================================================
+
+def license_allowed(
+    license_name
+):
+
+    value = normalize(
+        license_name
+    )
+
+    if not value:
+        return False
+
+    allowed = [
+        "cc0",
+        "public domain",
+        "cc by",
+        "cc by sa",
+        "cc by nc",
+        "cc by nd",
+        "cc by nc sa",
+        "cc by nc nd",
+    ]
+
+    return any(
+        item in value
+        for item in allowed
+    )
+
+
+# ============================================================
 # COMMONS SEARCH
 # ============================================================
 
-def commons_search(site_name, country_name):
+def commons_search(
+    site_name,
+    country_name
+):
+
     queries = [
         site_name,
         f"{site_name} {country_name}",
@@ -751,24 +1009,29 @@ def commons_search(site_name, country_name):
 
     best = None
 
-    for query in queries:
+    for search_query in queries:
+
         try:
+
             params = {
                 "action": "query",
                 "format": "json",
                 "generator": "search",
-                "gsrsearch": query,
+                "gsrsearch": search_query,
                 "gsrnamespace": 6,
                 "gsrlimit": 20,
+                "gsrsort": "relevance",
                 "prop": "imageinfo",
-                "iiprop": "url|mime|size|extmetadata",
+                "iiprop": (
+                    "url|mime|size|extmetadata"
+                ),
                 "iiurlwidth": 1600,
             }
 
             response = SESSION.get(
                 COMMONS_API_URL,
                 params=params,
-                timeout=45
+                timeout=60
             )
 
             if response.status_code != 200:
@@ -777,13 +1040,18 @@ def commons_search(site_name, country_name):
             data = response.json()
 
             pages = (
-                data.get("query", {})
+                data
+                .get("query", {})
                 .get("pages", {})
             )
 
             for page in pages.values():
+
                 title = clean_text(
-                    page.get("title", "")
+                    page.get(
+                        "title",
+                        ""
+                    )
                 )
 
                 imageinfo = page.get(
@@ -796,17 +1064,28 @@ def commons_search(site_name, country_name):
 
                 info = imageinfo[0]
 
-                url = info.get("thumburl") or info.get("url")
+                url = (
+                    info.get("thumburl")
+                    or info.get("url")
+                )
+
+                original_url = info.get(
+                    "url"
+                )
 
                 if not url:
                     continue
 
-                mime = (
-                    info.get("mime")
-                    or ""
+                mime = clean_text(
+                    info.get(
+                        "mime",
+                        ""
+                    )
                 ).lower()
 
-                if not mime.startswith("image/"):
+                if not mime.startswith(
+                    "image/"
+                ):
                     continue
 
                 metadata = info.get(
@@ -815,118 +1094,88 @@ def commons_search(site_name, country_name):
                 )
 
                 license_name = clean_text(
-                    metadata.get(
+                    metadata
+                    .get(
                         "LicenseShortName",
                         {}
-                    ).get("value", "")
+                    )
+                    .get(
+                        "value",
+                        ""
+                    )
                 )
 
-                artist = clean_text(
-                    metadata.get(
-                        "Artist",
-                        {}
-                    ).get("value", "")
-                )
-
-                description = clean_text(
-                    metadata.get(
-                        "ImageDescription",
-                        {}
-                    ).get("value", "")
-                )
-
-                # ------------------------------------------------
-                # License filtering
-                # ------------------------------------------------
-
-                license_lower = license_name.lower()
-
-                allowed_license = any(
-                    x in license_lower
-                    for x in [
-                        "cc0",
-                        "cc by",
-                        "cc-by",
-                        "cc by-sa",
-                        "cc-by-sa",
-                        "public domain",
-                        "pd"
-                    ]
-                )
-
-                if not allowed_license:
+                if not license_allowed(
+                    license_name
+                ):
                     continue
 
-                # ------------------------------------------------
-                # Bad / generic Wikimedia files
-                # ------------------------------------------------
+                title_normalized = normalize(
+                    title
+                )
 
-                title_lower = title.lower()
+                site_normalized = normalize(
+                    site_name
+                )
 
-                blocked_words = [
+                country_normalized = normalize(
+                    country_name
+                )
+
+                # Harita / bayrak / logo vb. görselleri ele
+                blocked = [
                     "flag",
                     "map",
+                    "locator",
                     "logo",
                     "coat of arms",
-                    "locator",
                     "icon",
                     "symbol",
                     "stamp",
                     "diagram",
+                    "plan",
                 ]
 
                 if any(
-                    word in title_lower
-                    for word in blocked_words
+                    word in title_normalized
+                    for word in blocked
                 ):
                     continue
 
-                # ------------------------------------------------
-                # Scoring
-                # ------------------------------------------------
-
                 score = 0
 
-                normalized_site = normalize(
-                    site_name
-                )
-
-                normalized_title = normalize(
-                    title
-                )
-
-                normalized_country = normalize(
-                    country_name
-                )
-
                 site_words = set(
-                    normalized_site.split()
+                    site_normalized.split()
                 )
 
                 title_words = set(
-                    normalized_title.split()
+                    title_normalized.split()
                 )
 
                 common_words = (
-                    site_words & title_words
+                    site_words
+                    & title_words
                 )
 
-                score += len(common_words) * 8
+                score += (
+                    len(common_words) * 8
+                )
 
-                if normalized_site in normalized_title:
+                if site_normalized in title_normalized:
                     score += 50
 
-                if normalized_country in normalized_title:
+                if country_normalized in title_normalized:
                     score += 15
 
-                if artist:
-                    score += 2
+                width = (
+                    info.get("width")
+                    or 0
+                )
 
-                if description:
-                    score += 2
-
-                width = info.get("width") or 0
-                height = info.get("height") or 0
+                height = (
+                    info.get("height")
+                    or 0
+                )
 
                 if width >= 1000:
                     score += 5
@@ -934,10 +1183,40 @@ def commons_search(site_name, country_name):
                 if height >= 700:
                     score += 5
 
+                description = clean_text(
+                    metadata
+                    .get(
+                        "ImageDescription",
+                        {}
+                    )
+                    .get(
+                        "value",
+                        ""
+                    )
+                )
+
+                artist = clean_text(
+                    metadata
+                    .get(
+                        "Artist",
+                        {}
+                    )
+                    .get(
+                        "value",
+                        ""
+                    )
+                )
+
+                if description:
+                    score += 2
+
+                if artist:
+                    score += 2
+
                 candidate = {
                     "title": title,
                     "url": url,
-                    "original_url": info.get("url"),
+                    "original_url": original_url,
                     "license": license_name,
                     "artist": artist,
                     "description": description,
@@ -945,7 +1224,10 @@ def commons_search(site_name, country_name):
                     "commons_page": (
                         "https://commons.wikimedia.org/wiki/"
                         + quote(
-                            title.replace(" ", "_")
+                            title.replace(
+                                " ",
+                                "_"
+                            )
                         )
                     ),
                 }
@@ -955,29 +1237,34 @@ def commons_search(site_name, country_name):
                     or candidate["score"]
                     > best["score"]
                 ):
+
                     best = candidate
 
         except Exception as exc:
+
             print(
-                f"Commons araması başarısız: "
+                "[COMMONS ARAMA HATASI] "
                 f"{exc}"
             )
 
-        if best and best["score"] >= 40:
+        if (
+            best is not None
+            and best["score"] >= 40
+        ):
             break
 
     return best
 
 
 # ============================================================
-# IMAGE DOWNLOAD
+# DOWNLOAD IMAGE
 # ============================================================
 
 def download_image(url):
+
     response = SESSION.get(
         url,
-        timeout=90,
-        stream=True
+        timeout=90
     )
 
     response.raise_for_status()
@@ -985,26 +1272,21 @@ def download_image(url):
     content = response.content
 
     if len(content) < 10_000:
+
         raise RuntimeError(
-            "Görsel çok küçük / geçersiz."
+            "İndirilen dosya çok küçük."
         )
 
     return content
 
 
 # ============================================================
-# IMAGE VALIDATION
+# VALIDATE IMAGE
 # ============================================================
 
 def validate_image(content):
+
     try:
-        from io import BytesIO
-
-        image = Image.open(
-            BytesIO(content)
-        )
-
-        image.verify()
 
         image = Image.open(
             BytesIO(content)
@@ -1012,31 +1294,39 @@ def validate_image(content):
 
         width, height = image.size
 
-        if width < 400 or height < 300:
+        if width < 400:
             return False
+
+        if height < 300:
+            return False
+
+        image.verify()
 
         return True
 
     except Exception:
+
         return False
 
 
 # ============================================================
-# SAVE IMAGE
+# SAVE JPG
 # ============================================================
 
-def save_jpg(content, output_path):
-    from io import BytesIO
+def save_as_jpg(
+    content,
+    output_path
+):
 
     image = Image.open(
         BytesIO(content)
     )
 
-    if image.mode not in (
-        "RGB",
-        "L"
-    ):
-        image = image.convert("RGB")
+    if image.mode != "RGB":
+
+        image = image.convert(
+            "RGB"
+        )
 
     image.save(
         output_path,
@@ -1047,96 +1337,158 @@ def save_jpg(content, output_path):
 
 
 # ============================================================
-# SOURCE DATABASE
+# IMAGE SOURCE DATABASE
 # ============================================================
 
 def load_source_database():
-    path = DATA_DIR / "image_sources.json"
+
+    path = (
+        DATA_DIR
+        / "image_sources.json"
+    )
 
     if not path.exists():
         return {}
 
     try:
+
         with open(
             path,
             "r",
             encoding="utf-8"
-        ) as f:
-            data = json.load(f)
+        ) as file:
 
-        if isinstance(data, dict):
+            data = json.load(
+                file
+            )
+
+        if isinstance(
+            data,
+            dict
+        ):
             return data
 
     except Exception:
+
         pass
 
     return {}
 
 
-def save_source_database(data):
-    path = DATA_DIR / "image_sources.json"
+def save_source_database(
+    data
+):
+
+    path = (
+        DATA_DIR
+        / "image_sources.json"
+    )
 
     with open(
         path,
         "w",
         encoding="utf-8"
-    ) as f:
+    ) as file:
+
         json.dump(
             data,
-            f,
+            file,
             ensure_ascii=False,
             indent=2
         )
 
 
 # ============================================================
-# PROCESS ONE UNESCO SITE
+# ONE UNESCO SITE
 # ============================================================
 
-def process_site(record, source_db):
+def process_site(
+    record,
+    flag_map,
+    source_db
+):
+
     site = record["site"]
-    countries = record["countries"]
+
+    countries = record[
+        "countries"
+    ]
 
     if not countries:
+
         print(
-            f"[ATLANDI] Ülke yok: {site}"
+            f"[ATLANDI] "
+            f"Ülke bulunamadı: {site}"
         )
+
         return 0
 
-    downloaded_count = 0
+    downloaded = 0
 
     for country in countries:
 
-        country_dir = find_country_directory(
-            country
+        # ----------------------------------------------------
+        # Manuel bayrağın gerçekten mevcut olup olmadığını
+        # kontrol ediyoruz.
+        #
+        # ÖNEMLİ:
+        # Bayrak dosyasına dokunulmuyor.
+        # ----------------------------------------------------
+
+        flag = find_flag(
+            country,
+            flag_map
         )
 
-        if country_dir is None:
+        if flag is None:
+
             print(
-                f"[ATLANDI] Bayrak klasörü yok: "
+                f"[ATLANDI] Bayrak yok: "
                 f"{country} | {site}"
             )
+
             continue
 
-        existing = image_already_exists(
+        # ----------------------------------------------------
+        # UNESCO ülke klasörü
+        # ----------------------------------------------------
+
+        country_dir = (
+            get_unesco_country_dir(
+                country
+            )
+        )
+
+        existing = find_existing_image(
             country_dir,
             site
         )
 
         if existing:
+
             print(
-                f"[VAR] {country} / "
+                f"[VAR] {country} | "
                 f"{existing.name}"
             )
+
             continue
 
         print()
         print(
             f"[UNESCO] {site}"
         )
+
         print(
             f"[ÜLKE] {country}"
         )
+
+        print(
+            f"[BAYRAK] {flag.name}"
+        )
+
+        # ----------------------------------------------------
+        # Wikimedia Commons
+        # ----------------------------------------------------
 
         candidate = commons_search(
             site,
@@ -1144,14 +1496,17 @@ def process_site(record, source_db):
         )
 
         if candidate is None:
+
             print(
-                "[BULUNAMADI] Commons'ta "
-                "uygun görsel bulunamadı."
+                "[BULUNAMADI] "
+                "Uygun Commons görseli bulunamadı."
             )
+
             continue
 
         print(
-            f"[COMMONS] {candidate['title']}"
+            f"[COMMONS] "
+            f"{candidate['title']}"
         )
 
         print(
@@ -1164,15 +1519,24 @@ def process_site(record, source_db):
             f"{candidate['score']}"
         )
 
+        # ----------------------------------------------------
+        # Download
+        # ----------------------------------------------------
+
         try:
+
             content = download_image(
                 candidate["url"]
             )
 
-            if not validate_image(content):
+            if not validate_image(
+                content
+            ):
+
                 print(
-                    "[HATA] Geçersiz veya küçük görsel."
+                    "[HATA] Görsel doğrulanamadı."
                 )
+
                 continue
 
             filename = (
@@ -1185,27 +1549,63 @@ def process_site(record, source_db):
                 / filename
             )
 
-            save_jpg(
+            save_as_jpg(
                 content,
                 output_path
             )
+
+            # ------------------------------------------------
+            # Source database
+            # ------------------------------------------------
 
             source_key = (
                 f"{country}|{site}"
             )
 
-            source_db[source_key] = {
+            source_db[
+                source_key
+            ] = {
+
                 "site": site,
+
                 "country": country,
-                "unesco_id": record["id"],
-                "unesco_url": record["http_url"],
-                "unesco_image_url": record["image_url"],
-                "commons_title": candidate["title"],
-                "commons_page": candidate["commons_page"],
-                "image_url": candidate["original_url"],
-                "download_url": candidate["url"],
-                "license": candidate["license"],
-                "artist": candidate["artist"],
+
+                "unesco_id": record[
+                    "id"
+                ],
+
+                "unesco_url": record[
+                    "http_url"
+                ],
+
+                "unesco_image_url": record[
+                    "image_url"
+                ],
+
+                "commons_title": candidate[
+                    "title"
+                ],
+
+                "commons_page": candidate[
+                    "commons_page"
+                ],
+
+                "image_url": candidate[
+                    "original_url"
+                ],
+
+                "download_url": candidate[
+                    "url"
+                ],
+
+                "license": candidate[
+                    "license"
+                ],
+
+                "artist": candidate[
+                    "artist"
+                ],
+
                 "saved_file": str(
                     output_path.relative_to(
                         BASE_DIR
@@ -1213,7 +1613,7 @@ def process_site(record, source_db):
                 ),
             }
 
-            downloaded_count += 1
+            downloaded += 1
 
             print(
                 f"[OK] Kaydedildi: "
@@ -1221,14 +1621,18 @@ def process_site(record, source_db):
             )
 
         except Exception as exc:
+
             print(
-                f"[HATA] Görsel indirilemedi: "
+                f"[HATA] "
                 f"{exc}"
             )
 
-        time.sleep(0.4)
+        # Commons API'yi aşırı zorlamamak için
+        time.sleep(
+            0.4
+        )
 
-    return downloaded_count
+    return downloaded
 
 
 # ============================================================
@@ -1236,45 +1640,61 @@ def process_site(record, source_db):
 # ============================================================
 
 def main():
+
     if len(sys.argv) != 2:
+
         print(
             "Kullanım:"
         )
+
         print(
             "python download_assets.py unesco-1"
         )
+
         print(
             "python download_assets.py unesco-2"
         )
+
         print(
             "python download_assets.py unesco-3"
         )
 
         sys.exit(1)
 
-    mode = sys.argv[1].strip().lower()
+    mode = (
+        sys.argv[1]
+        .strip()
+        .lower()
+    )
 
     if mode not in (
         "unesco-1",
         "unesco-2",
         "unesco-3"
     ):
+
         print(
             f"Geçersiz mod: {mode}"
         )
+
         sys.exit(1)
 
     print("=" * 70)
     print("PIECE OF PAST")
     print("UNESCO WORLD HERITAGE ASSET DOWNLOADER")
     print("=" * 70)
-    print(f"Mod: {mode}")
+
+    print(
+        f"Mod: {mode}"
+    )
+
     print("=" * 70)
 
-    if not COUNTRY_DIR.exists():
-        raise RuntimeError(
-            "'ülkeler' klasörü bulunamadı."
-        )
+    # --------------------------------------------------------
+    # Manuel bayrakları oku
+    # --------------------------------------------------------
+
+    flag_map = build_flag_map()
 
     # --------------------------------------------------------
     # UNESCO XML
@@ -1287,16 +1707,26 @@ def main():
     )
 
     if not records:
+
         raise RuntimeError(
             "UNESCO XML'den kayıt alınamadı."
         )
 
-    validate_unesco_data(
+    # --------------------------------------------------------
+    # Kontrol
+    # --------------------------------------------------------
+
+    print_unesco_test(
         records
     )
 
+    validate_flags(
+        records,
+        flag_map
+    )
+
     # --------------------------------------------------------
-    # CHUNK
+    # Chunk
     # --------------------------------------------------------
 
     selected_records = get_chunk(
@@ -1305,14 +1735,19 @@ def main():
     )
 
     # --------------------------------------------------------
-    # SOURCE DATABASE
+    # Source database
     # --------------------------------------------------------
 
     source_db = load_source_database()
 
     # --------------------------------------------------------
-    # DOWNLOAD
+    # UNESCO DIRECTORY
     # --------------------------------------------------------
+
+    UNESCO_DIR.mkdir(
+        parents=True,
+        exist_ok=True
+    )
 
     print("=" * 70)
     print(
@@ -1320,38 +1755,48 @@ def main():
     )
     print("=" * 70)
 
-    downloaded = 0
+    downloaded_total = 0
 
     for index, record in enumerate(
         selected_records,
         start=1
     ):
+
         print()
         print(
             "-" * 70
         )
+
         print(
-            f"[{index}/{len(selected_records)}] "
-            f"{record['site']}"
+            f"[{index}/{len(selected_records)}]"
         )
+
+        print(
+            record["site"]
+        )
+
         print(
             "-" * 70
         )
 
         try:
-            downloaded += process_site(
+
+            downloaded_total += process_site(
                 record,
+                flag_map,
                 source_db
             )
 
         except Exception as exc:
+
             print(
                 f"[KAYIT HATASI] "
-                f"{record['site']}: {exc}"
+                f"{record['site']}: "
+                f"{exc}"
             )
 
     # --------------------------------------------------------
-    # SAVE SOURCES
+    # Source database save
     # --------------------------------------------------------
 
     save_source_database(
@@ -1359,7 +1804,7 @@ def main():
     )
 
     # --------------------------------------------------------
-    # FINAL REPORT
+    # Final
     # --------------------------------------------------------
 
     print()
@@ -1368,8 +1813,13 @@ def main():
     print("=" * 70)
 
     print(
-        f"İndirilen yeni görsel sayısı: "
-        f"{downloaded}"
+        f"Yeni indirilen UNESCO görseli: "
+        f"{downloaded_total}"
+    )
+
+    print(
+        f"UNESCO klasörü: "
+        f"{UNESCO_DIR}"
     )
 
     print(
@@ -1379,8 +1829,13 @@ def main():
 
     print()
     print(
-        "NOT: 'ülkeler' klasöründeki mevcut "
-        "manuel bayraklar değiştirilmedi."
+        "MEVCUT BAYRAKLARA DOKUNULMADI."
+    )
+
+    print(
+        "UNESCO görselleri ayrı "
+        "'unesco dünya mirasları' "
+        "klasörüne kaydedildi."
     )
 
     print("=" * 70)
