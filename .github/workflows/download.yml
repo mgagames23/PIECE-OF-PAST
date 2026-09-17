@@ -25,7 +25,7 @@ concurrency:
 jobs:
 
   # ==========================================================
-  # 1. ULKELER
+  # 1. ULKE BAYRAKLARI
   # ==========================================================
 
   countries:
@@ -34,17 +34,29 @@ jobs:
 
     steps:
 
+      # --------------------------------------------------------
+      # DEPLOY
+      # --------------------------------------------------------
+
       - name: Depoyu Klonla
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
 
+      # --------------------------------------------------------
+      # PYTHON
+      # --------------------------------------------------------
+
       - name: Python Kur
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
+
+      # --------------------------------------------------------
+      # KUTUPHANELER
+      # --------------------------------------------------------
 
       - name: Kutuphaneleri Yukle
         run: |
@@ -53,26 +65,12 @@ jobs:
 
 
       # --------------------------------------------------------
-      # Eski Wikimedia bayraklarini temizle
-      # --------------------------------------------------------
-
-      - name: Eski Ulke Bayraklarini Temizle
-        run: |
-          echo "Eski ulke bayraklari temizleniyor..."
-
-          if [ -d "ülkeler" ]; then
-            find "ülkeler" -type f \
-              \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" \) \
-              -delete
-          fi
-
-          mkdir -p "ülkeler"
-
-          echo "Ulke klasoru hazir."
-
-
-      # --------------------------------------------------------
-      # Güncel main
+      # GUNCEL MAIN'I AL
+      #
+      # ONEMLI:
+      # Reset once burada yapiliyor.
+      # Bundan SONRA eski bayraklar temizleniyor.
+      # Boylece reset eski bayraklari geri getirmiyor.
       # --------------------------------------------------------
 
       - name: Guncel Main Dalini Al
@@ -82,23 +80,46 @@ jobs:
 
 
       # --------------------------------------------------------
-      # Ülke bayraklarını indir
+      # ESKI ULKE GORSELLERINI TEMIZLE
       # --------------------------------------------------------
 
-      - name: Ulke Bayraklarini Indir
+      - name: Eski Ulke Bayraklarini Temizle
+        run: |
+          echo "Eski ulke bayraklari temizleniyor..."
+
+          if [ -d "ülkeler" ]; then
+            find "ülkeler" -type f \
+              \( \
+                -iname "*.jpg" \
+                -o -iname "*.jpeg" \
+                -o -iname "*.png" \
+                -o -iname "*.webp" \
+              \) \
+              -delete
+          fi
+
+          mkdir -p "ülkeler"
+
+          echo "Ulke klasoru hazir."
+          echo "Yeni standart bayraklar indirilecek."
+
+
+      # --------------------------------------------------------
+      # STANDART ULKE BAYRAKLARINI INDIR
+      # --------------------------------------------------------
+
+      - name: Standart Ulke Bayraklarini Indir
         run: |
           python download_assets.py countries
 
 
       # --------------------------------------------------------
-      # Ülke kontrolü
-      #
-      # Script zaten eksik ülke varsa hata veriyor.
-      # Bu adım ekstra güvenlik kontrolüdür.
+      # ULKE BAYRAKLARINI KONTROL ET
       # --------------------------------------------------------
 
       - name: Ulke Bayraklarini Kontrol Et
         run: |
+
           COUNT=$(find "ülkeler" -type f -iname "*.jpg" | wc -l)
 
           echo "Bulunan JPG bayrak sayisi: $COUNT"
@@ -108,15 +129,16 @@ jobs:
             exit 1
           fi
 
-          echo "Ulke bayraklari tamam."
+          echo "174 ulke bayragi mevcut."
 
 
       # --------------------------------------------------------
-      # Commit / Push
+      # COMMIT
       # --------------------------------------------------------
 
       - name: Ulke Bayraklarini Commit Et
         run: |
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
@@ -131,30 +153,50 @@ jobs:
 
 
       # --------------------------------------------------------
-      # Push sırasında main değişmişse güncelle
+      # PUSH
+      #
+      # Eger bu sirada main degismisse:
+      #
+      # 1. Guncel main al
+      # 2. Eski bayraklari tekrar temizle
+      # 3. Bayraklari tekrar indir
+      # 4. Commit
+      # 5. Push
       # --------------------------------------------------------
 
       - name: Ulke Degisikliklerini Push Et
         run: |
+
           git fetch origin main
 
           if ! git merge-base --is-ancestor HEAD origin/main; then
+
             echo "Main dalinda yeni degisiklik bulundu."
             echo "Guncel main yeniden alinacak."
 
             git reset --hard origin/main
 
-            # Main'den sonra ülke bayraklarını tekrar oluştur.
-            # Eski bayrakları tekrar temizle.
+
+            echo "Eski ulke bayraklari yeniden temizleniyor..."
+
             if [ -d "ülkeler" ]; then
               find "ülkeler" -type f \
-                \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" \) \
+                \( \
+                  -iname "*.jpg" \
+                  -o -iname "*.jpeg" \
+                  -o -iname "*.png" \
+                  -o -iname "*.webp" \
+                \) \
                 -delete
             fi
 
             mkdir -p "ülkeler"
 
+
+            echo "174 standart bayrak yeniden indiriliyor..."
+
             python download_assets.py countries
+
 
             COUNT=$(find "ülkeler" -type f -iname "*.jpg" | wc -l)
 
@@ -165,6 +207,7 @@ jobs:
               exit 1
             fi
 
+
             git add -A -- "ülkeler" "data"
 
             if git diff --cached --quiet; then
@@ -173,14 +216,15 @@ jobs:
             fi
 
             git commit -m "Standart ulke bayraklarini guncelle"
+
           fi
 
           git push origin HEAD:main
 
 
+
   # ==========================================================
-  # 2. UNESCO 1
-  # 1 - 424
+  # 2. UNESCO 1-424
   # ==========================================================
 
   unesco_1:
@@ -215,13 +259,22 @@ jobs:
           git reset --hard origin/main
 
 
+      # --------------------------------------------------------
+      # 1-424
+      # --------------------------------------------------------
+
       - name: UNESCO 1-424 Indir
         run: |
           python download_assets.py unesco-1
 
 
+      # --------------------------------------------------------
+      # COMMIT
+      # --------------------------------------------------------
+
       - name: UNESCO 1-424 Commit Et
         run: |
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
@@ -235,11 +288,17 @@ jobs:
           git commit -m "UNESCO gorselleri 1-424"
 
 
+      # --------------------------------------------------------
+      # PUSH
+      # --------------------------------------------------------
+
       - name: UNESCO 1-424 Push Et
         run: |
+
           git fetch origin main
 
           if ! git merge-base --is-ancestor HEAD origin/main; then
+
             echo "Main dalinda yeni degisiklik bulundu."
             echo "UNESCO 1 guncel main uzerinde yeniden calisacak."
 
@@ -255,9 +314,11 @@ jobs:
             fi
 
             git commit -m "UNESCO gorselleri 1-424"
+
           fi
 
           git push origin HEAD:main
+
 
 
   # ==========================================================
@@ -296,13 +357,22 @@ jobs:
           git reset --hard origin/main
 
 
+      # --------------------------------------------------------
+      # 425-848
+      # --------------------------------------------------------
+
       - name: UNESCO 425-848 Indir
         run: |
           python download_assets.py unesco-2
 
 
+      # --------------------------------------------------------
+      # COMMIT
+      # --------------------------------------------------------
+
       - name: UNESCO 425-848 Commit Et
         run: |
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
@@ -316,11 +386,17 @@ jobs:
           git commit -m "UNESCO gorselleri 425-848"
 
 
+      # --------------------------------------------------------
+      # PUSH
+      # --------------------------------------------------------
+
       - name: UNESCO 425-848 Push Et
         run: |
+
           git fetch origin main
 
           if ! git merge-base --is-ancestor HEAD origin/main; then
+
             echo "Main dalinda yeni degisiklik bulundu."
             echo "UNESCO 2 guncel main uzerinde yeniden calisacak."
 
@@ -336,9 +412,11 @@ jobs:
             fi
 
             git commit -m "UNESCO gorselleri 425-848"
+
           fi
 
           git push origin HEAD:main
+
 
 
   # ==========================================================
@@ -377,13 +455,22 @@ jobs:
           git reset --hard origin/main
 
 
+      # --------------------------------------------------------
+      # 849-1273
+      # --------------------------------------------------------
+
       - name: UNESCO 849-1273 Indir
         run: |
           python download_assets.py unesco-3
 
 
+      # --------------------------------------------------------
+      # COMMIT
+      # --------------------------------------------------------
+
       - name: UNESCO 849-1273 Commit Et
         run: |
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
@@ -397,11 +484,17 @@ jobs:
           git commit -m "UNESCO gorselleri 849-1273"
 
 
+      # --------------------------------------------------------
+      # PUSH
+      # --------------------------------------------------------
+
       - name: UNESCO 849-1273 Push Et
         run: |
+
           git fetch origin main
 
           if ! git merge-base --is-ancestor HEAD origin/main; then
+
             echo "Main dalinda yeni degisiklik bulundu."
             echo "UNESCO 3 guncel main uzerinde yeniden calisacak."
 
@@ -417,6 +510,7 @@ jobs:
             fi
 
             git commit -m "UNESCO gorselleri 849-1273"
+
           fi
 
           git push origin HEAD:main
