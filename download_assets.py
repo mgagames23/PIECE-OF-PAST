@@ -34,7 +34,7 @@ UNESCO_XML = "https://whc.unesco.org/en/list/xml/"
 
 # Standart ülke bayrakları
 COUNTRY_FLAGS_BASE = (
-    "https://raw.githubusercontent.com/oppops/Country-Flags/master/png250px"
+    "https://raw.githubusercontent.com/hampusborgos/country-flags/master/png1000px"
 )
 
 # Wikimedia sadece UNESCO alan görselleri için kullanılacak.
