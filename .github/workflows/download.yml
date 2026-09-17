@@ -1,21 +1,20 @@
-name: UNESCO Gorsellerini Otomatik Indir
+name: UNESCO Gorsellerini Indir
 
 on:
-  push:
-    branches: [main, master]
-    paths:
-      - "download_assets.py"
-      - ".github/workflows/download.yml"
-
   workflow_dispatch:
 
   schedule:
     - cron: "0 3 1 * *"
 
+  push:
+    branches:
+      - main
+    paths:
+      - "download_assets.py"
+      - ".github/workflows/download.yml"
 
 permissions:
   contents: write
-
 
 concurrency:
   group: unesco-download
@@ -25,492 +24,198 @@ concurrency:
 jobs:
 
   # ==========================================================
-  # 1. ULKE BAYRAKLARI
-  # ==========================================================
-
-  countries:
-    name: "1 - Ulke Bayraklari"
-    runs-on: ubuntu-latest
-
-    steps:
-
-      # --------------------------------------------------------
-      # DEPLOY
-      # --------------------------------------------------------
-
-      - name: Depoyu Klonla
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-
-      # --------------------------------------------------------
-      # PYTHON
-      # --------------------------------------------------------
-
-      - name: Python Kur
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
-
-
-      # --------------------------------------------------------
-      # KUTUPHANELER
-      # --------------------------------------------------------
-
-      - name: Kutuphaneleri Yukle
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests pillow
-
-
-      # --------------------------------------------------------
-      # GUNCEL MAIN'I AL
-      #
-      # ONEMLI:
-      # Reset once burada yapiliyor.
-      # Bundan SONRA eski bayraklar temizleniyor.
-      # Boylece reset eski bayraklari geri getirmiyor.
-      # --------------------------------------------------------
-
-      - name: Guncel Main Dalini Al
-        run: |
-          git fetch origin main
-          git reset --hard origin/main
-
-
-      # --------------------------------------------------------
-      # ESKI ULKE GORSELLERINI TEMIZLE
-      # --------------------------------------------------------
-
-      - name: Eski Ulke Bayraklarini Temizle
-        run: |
-          echo "Eski ulke bayraklari temizleniyor..."
-
-          if [ -d "ülkeler" ]; then
-            find "ülkeler" -type f \
-              \( \
-                -iname "*.jpg" \
-                -o -iname "*.jpeg" \
-                -o -iname "*.png" \
-                -o -iname "*.webp" \
-              \) \
-              -delete
-          fi
-
-          mkdir -p "ülkeler"
-
-          echo "Ulke klasoru hazir."
-          echo "Yeni standart bayraklar indirilecek."
-
-
-      # --------------------------------------------------------
-      # STANDART ULKE BAYRAKLARINI INDIR
-      # --------------------------------------------------------
-
-      - name: Standart Ulke Bayraklarini Indir
-        run: |
-          python download_assets.py countries
-
-
-      # --------------------------------------------------------
-      # ULKE BAYRAKLARINI KONTROL ET
-      # --------------------------------------------------------
-
-      - name: Ulke Bayraklarini Kontrol Et
-        run: |
-
-          COUNT=$(find "ülkeler" -type f -iname "*.jpg" | wc -l)
-
-          echo "Bulunan JPG bayrak sayisi: $COUNT"
-
-          if [ "$COUNT" -lt 174 ]; then
-            echo "HATA: 174 ulke bayraginin tamami bulunamadi."
-            exit 1
-          fi
-
-          echo "174 ulke bayragi mevcut."
-
-
-      # --------------------------------------------------------
-      # COMMIT
-      # --------------------------------------------------------
-
-      - name: Ulke Bayraklarini Commit Et
-        run: |
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add -A -- "ülkeler" "data"
-
-          if git diff --cached --quiet; then
-            echo "Ulke bayraklarinda degisiklik yok."
-            exit 0
-          fi
-
-          git commit -m "Standart ulke bayraklarini guncelle"
-
-
-      # --------------------------------------------------------
-      # PUSH
-      #
-      # Eger bu sirada main degismisse:
-      #
-      # 1. Guncel main al
-      # 2. Eski bayraklari tekrar temizle
-      # 3. Bayraklari tekrar indir
-      # 4. Commit
-      # 5. Push
-      # --------------------------------------------------------
-
-      - name: Ulke Degisikliklerini Push Et
-        run: |
-
-          git fetch origin main
-
-          if ! git merge-base --is-ancestor HEAD origin/main; then
-
-            echo "Main dalinda yeni degisiklik bulundu."
-            echo "Guncel main yeniden alinacak."
-
-            git reset --hard origin/main
-
-
-            echo "Eski ulke bayraklari yeniden temizleniyor..."
-
-            if [ -d "ülkeler" ]; then
-              find "ülkeler" -type f \
-                \( \
-                  -iname "*.jpg" \
-                  -o -iname "*.jpeg" \
-                  -o -iname "*.png" \
-                  -o -iname "*.webp" \
-                \) \
-                -delete
-            fi
-
-            mkdir -p "ülkeler"
-
-
-            echo "174 standart bayrak yeniden indiriliyor..."
-
-            python download_assets.py countries
-
-
-            COUNT=$(find "ülkeler" -type f -iname "*.jpg" | wc -l)
-
-            echo "Bulunan JPG bayrak sayisi: $COUNT"
-
-            if [ "$COUNT" -lt 174 ]; then
-              echo "HATA: 174 ulke bayraginin tamami bulunamadi."
-              exit 1
-            fi
-
-
-            git add -A -- "ülkeler" "data"
-
-            if git diff --cached --quiet; then
-              echo "Yeniden indirme sonrasi degisiklik yok."
-              exit 0
-            fi
-
-            git commit -m "Standart ulke bayraklarini guncelle"
-
-          fi
-
-          git push origin HEAD:main
-
-
-
-  # ==========================================================
-  # 2. UNESCO 1-424
+  # 1. PARÇA
   # ==========================================================
 
   unesco_1:
-    name: "2 - UNESCO 1-424"
-    runs-on: ubuntu-latest
+    name: UNESCO 1. Parca
 
-    needs: countries
+    runs-on: ubuntu-latest
 
     steps:
 
-      - name: Depoyu Klonla
+      - name: Repository Checkout
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-
       - name: Python Kur
         uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
-
-      - name: Kutuphaneleri Yukle
+      - name: Gereksinimleri Kur
         run: |
           python -m pip install --upgrade pip
           pip install requests pillow
 
-
-      - name: Guncel Main Dalini Al
+      - name: Main Dalini Guncelle
         run: |
           git fetch origin main
           git reset --hard origin/main
 
-
-      # --------------------------------------------------------
-      # 1-424
-      # --------------------------------------------------------
-
-      - name: UNESCO 1-424 Indir
+      - name: UNESCO 1. Parcayi Indir
         run: |
           python download_assets.py unesco-1
 
-
-      # --------------------------------------------------------
-      # COMMIT
-      # --------------------------------------------------------
-
-      - name: UNESCO 1-424 Commit Et
+      - name: Dosyalari Kontrol Et
         run: |
+          echo "UNESCO JPG sayisi:"
+          find "unesco dünya mirasları" \
+            -type f \
+            \( -iname "*.jpg" -o -iname "*.jpeg" \) \
+            | wc -l
 
+      - name: Degisiklikleri Commit Et
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add -A -- "unesco dünya mirasları" "data"
+          git add "unesco dünya mirasları" data
 
           if git diff --cached --quiet; then
-            echo "UNESCO 1 degisikligi yok."
+            echo "Commit edilecek degisiklik yok."
             exit 0
           fi
 
-          git commit -m "UNESCO gorselleri 1-424"
+          git commit -m "UNESCO 1. parca gorsellerini guncelle"
 
-
-      # --------------------------------------------------------
-      # PUSH
-      # --------------------------------------------------------
-
-      - name: UNESCO 1-424 Push Et
+      - name: GitHub'a Push
         run: |
-
           git fetch origin main
-
-          if ! git merge-base --is-ancestor HEAD origin/main; then
-
-            echo "Main dalinda yeni degisiklik bulundu."
-            echo "UNESCO 1 guncel main uzerinde yeniden calisacak."
-
-            git reset --hard origin/main
-
-            python download_assets.py unesco-1
-
-            git add -A -- "unesco dünya mirasları" "data"
-
-            if git diff --cached --quiet; then
-              echo "Yeniden indirme sonrasi degisiklik yok."
-              exit 0
-            fi
-
-            git commit -m "UNESCO gorselleri 1-424"
-
-          fi
-
+          git rebase origin/main || true
           git push origin HEAD:main
 
 
-
   # ==========================================================
-  # 3. UNESCO 425-848
+  # 2. PARÇA
   # ==========================================================
 
   unesco_2:
-    name: "3 - UNESCO 425-848"
-    runs-on: ubuntu-latest
+    name: UNESCO 2. Parca
 
-    needs: unesco_1
+    needs:
+      - unesco_1
+
+    runs-on: ubuntu-latest
 
     steps:
 
-      - name: Depoyu Klonla
+      - name: Repository Checkout
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-
       - name: Python Kur
         uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
-
-      - name: Kutuphaneleri Yukle
+      - name: Gereksinimleri Kur
         run: |
           python -m pip install --upgrade pip
           pip install requests pillow
 
-
-      - name: Guncel Main Dalini Al
+      - name: Main Dalini Guncelle
         run: |
           git fetch origin main
           git reset --hard origin/main
 
-
-      # --------------------------------------------------------
-      # 425-848
-      # --------------------------------------------------------
-
-      - name: UNESCO 425-848 Indir
+      - name: UNESCO 2. Parcayi Indir
         run: |
           python download_assets.py unesco-2
 
-
-      # --------------------------------------------------------
-      # COMMIT
-      # --------------------------------------------------------
-
-      - name: UNESCO 425-848 Commit Et
+      - name: Dosyalari Kontrol Et
         run: |
+          echo "UNESCO JPG sayisi:"
+          find "unesco dünya mirasları" \
+            -type f \
+            \( -iname "*.jpg" -o -iname "*.jpeg" \) \
+            | wc -l
 
+      - name: Degisiklikleri Commit Et
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add -A -- "unesco dünya mirasları" "data"
+          git add "unesco dünya mirasları" data
 
           if git diff --cached --quiet; then
-            echo "UNESCO 2 degisikligi yok."
+            echo "Commit edilecek degisiklik yok."
             exit 0
           fi
 
-          git commit -m "UNESCO gorselleri 425-848"
+          git commit -m "UNESCO 2. parca gorsellerini guncelle"
 
-
-      # --------------------------------------------------------
-      # PUSH
-      # --------------------------------------------------------
-
-      - name: UNESCO 425-848 Push Et
+      - name: GitHub'a Push
         run: |
-
           git fetch origin main
-
-          if ! git merge-base --is-ancestor HEAD origin/main; then
-
-            echo "Main dalinda yeni degisiklik bulundu."
-            echo "UNESCO 2 guncel main uzerinde yeniden calisacak."
-
-            git reset --hard origin/main
-
-            python download_assets.py unesco-2
-
-            git add -A -- "unesco dünya mirasları" "data"
-
-            if git diff --cached --quiet; then
-              echo "Yeniden indirme sonrasi degisiklik yok."
-              exit 0
-            fi
-
-            git commit -m "UNESCO gorselleri 425-848"
-
-          fi
-
+          git rebase origin/main || true
           git push origin HEAD:main
 
 
-
   # ==========================================================
-  # 4. UNESCO 849-1273
+  # 3. PARÇA
   # ==========================================================
 
   unesco_3:
-    name: "4 - UNESCO 849-1273"
-    runs-on: ubuntu-latest
+    name: UNESCO 3. Parca
 
-    needs: unesco_2
+    needs:
+      - unesco_2
+
+    runs-on: ubuntu-latest
 
     steps:
 
-      - name: Depoyu Klonla
+      - name: Repository Checkout
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-
       - name: Python Kur
         uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
-
-      - name: Kutuphaneleri Yukle
+      - name: Gereksinimleri Kur
         run: |
           python -m pip install --upgrade pip
           pip install requests pillow
 
-
-      - name: Guncel Main Dalini Al
+      - name: Main Dalini Guncelle
         run: |
           git fetch origin main
           git reset --hard origin/main
 
-
-      # --------------------------------------------------------
-      # 849-1273
-      # --------------------------------------------------------
-
-      - name: UNESCO 849-1273 Indir
+      - name: UNESCO 3. Parcayi Indir
         run: |
           python download_assets.py unesco-3
 
-
-      # --------------------------------------------------------
-      # COMMIT
-      # --------------------------------------------------------
-
-      - name: UNESCO 849-1273 Commit Et
+      - name: Dosyalari Kontrol Et
         run: |
+          echo "UNESCO JPG sayisi:"
+          find "unesco dünya mirasları" \
+            -type f \
+            \( -iname "*.jpg" -o -iname "*.jpeg" \) \
+            | wc -l
 
+      - name: Degisiklikleri Commit Et
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add -A -- "unesco dünya mirasları" "data"
+          git add "unesco dünya mirasları" data
 
           if git diff --cached --quiet; then
-            echo "UNESCO 3 degisikligi yok."
+            echo "Commit edilecek degisiklik yok."
             exit 0
           fi
 
-          git commit -m "UNESCO gorselleri 849-1273"
+          git commit -m "UNESCO 3. parca gorsellerini guncelle"
 
-
-      # --------------------------------------------------------
-      # PUSH
-      # --------------------------------------------------------
-
-      - name: UNESCO 849-1273 Push Et
+      - name: GitHub'a Push
         run: |
-
           git fetch origin main
-
-          if ! git merge-base --is-ancestor HEAD origin/main; then
-
-            echo "Main dalinda yeni degisiklik bulundu."
-            echo "UNESCO 3 guncel main uzerinde yeniden calisacak."
-
-            git reset --hard origin/main
-
-            python download_assets.py unesco-3
-
-            git add -A -- "unesco dünya mirasları" "data"
-
-            if git diff --cached --quiet; then
-              echo "Yeniden indirme sonrasi degisiklik yok."
-              exit 0
-            fi
-
-            git commit -m "UNESCO gorselleri 849-1273"
-
-          fi
-
+          git rebase origin/main || true
           git push origin HEAD:main
