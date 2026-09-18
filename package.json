@@ -1,0 +1,16 @@
+{
+  "name": "piece-of-past-7",
+  "version": "1.0.0",
+  "description": "Bayrak ve Başkent Tahmin Oyunu",
+  "main": "index.html",
+  "scripts": {
+    "build": "mkdir -p www && cp -r index.html ülkeler oyun.jpg www/"
+  },
+  "dependencies": {
+    "@capacitor/core": "^5.0.0",
+    "@capacitor/android": "^5.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^5.0.0"
+  }
+}
