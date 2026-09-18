@@ -4,7 +4,7 @@
   "description": "Bayrak ve Başkent Tahmin Oyunu",
   "main": "index.html",
   "scripts": {
-    "build": "mkdir -p www && cp -r index.html ülkeler oyun.jpg www/"
+    "build": "rm -rf www && mkdir -p www && cp -r index.html ülkeler oyun.jpg www/"
   },
   "dependencies": {
     "@capacitor/core": "^5.0.0",
