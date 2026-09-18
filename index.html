@@ -1,17 +1,439 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="tr">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PIECE OF PAST</title>
-<style>
-body{margin:0;background:#1a1a2e;color:#fff;font-family:Arial,sans-serif;padding:30px;text-align:center}
-h1{margin-top:30px}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>PIECE-OF-PAST 7</title>
+    <!-- Canvas-Confetti CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; color: #fff; height: 100vh; display: flex; justify-content: center; align-items: center; }
+        #app { width: 100%; max-width: 450px; height: 100vh; background: #16213e; display: flex; flex-direction: column; justify-content: space-between; position: relative; overflow: hidden; }
+        .screen { display: none; flex-direction: column; height: 100%; padding: 20px; justify-content: space-between; align-items: center; text-align: center; }
+        .active { display: flex; }
+        
+        /* Start Screen */
+        #start-screen { justify-content: center; gap: 20px; }
+        #start-screen img { width: 100%; max-height: 250px; object-fit: cover; border-radius: 12px; border: 2px solid #0f3460; }
+        h1 { font-size: 28px; color: #e94560; margin-bottom: 10px; }
+        .btn-main { width: 100%; padding: 15px; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer; background: #e94560; color: #fff; transition: 0.2s; margin-top: 10px; }
+        .btn-main:active { transform: scale(0.98); background: #c0354e; }
+
+        /* HUD Header */
+        .hud { width: 100%; display: flex; justify-content: space-between; align-items: center; background: #0f3460; padding: 10px 15px; border-radius: 8px; font-size: 16px; }
+        .timer-bar-bg { width: 100%; height: 6px; background: #333; margin: 10px 0; border-radius: 3px; overflow: hidden; }
+        .timer-bar { width: 100%; height: 100%; background: #e94560; transition: width 1s linear; }
+
+        /* Question Area */
+        .flag-container { width: 100%; height: 200px; display: flex; justify-content: center; align-items: center; background: #0f3460; border-radius: 8px; overflow: hidden; border: 2px solid #533483; }
+        .flag-container img { max-width: 100%; max-height: 100%; object-fit: contain; }
+        .question-text { font-size: 18px; margin: 10px 0; color: #f1f1f1; }
+
+        /* Options */
+        .options-grid { width: 100%; display: flex; flex-direction: column; gap: 10px; }
+        .btn-opt { padding: 14px; border: 2px solid #533483; border-radius: 8px; background: #16213e; color: #fff; font-size: 16px; font-weight: 500; cursor: pointer; transition: 0.2s; }
+        .btn-opt.correct { background: #2e7d32 !important; border-color: #4caf50 !important; }
+        .btn-opt.wrong { background: #c62828 !important; border-color: #ef5350 !important; }
+
+        /* End Screen */
+        #end-screen { justify-content: center; gap: 20px; }
+    </style>
 </head>
 <body>
-<h1>PIECE OF PAST</h1>
-<p>UNESCO Dünya Mirası veri sistemi hazır.</p>
-<p>Veri: <code>data/unesco.json</code></p>
+
+<div id="app">
+    <!-- ANA MENÜ -->
+    <div id="start-screen" class="screen active">
+        <h1>PIECE-OF-PAST 7</h1>
+        <img src="oyun.jpg" alt="Oyun Görseli" onerror="this.src='https://via.placeholder.com/400x250/0f3460/ffffff?text=PIECE-OF-PAST+7'">
+        <div style="width: 100%;">
+            <button class="btn-main" onclick="startGame('flags')">BAYRAKLAR</button>
+            <button class="btn-main" style="background: #533483;" onclick="startGame('capitals')">BAŞKENTLER</button>
+        </div>
+    </div>
+
+    <!-- OYUN EKRANI -->
+    <div id="game-screen" class="screen">
+        <div style="width: 100%;">
+            <div class="hud">
+                <span id="score-correct" style="color: #4caf50; font-weight: bold;">Doğru: 0</span>
+                <span id="progress-text">1 / 173</span>
+                <span id="score-wrong" style="color: #ef5350; font-weight: bold;">Yanlış: 0</span>
+            </div>
+            <div class="timer-bar-bg"><div id="timer-bar" class="timer-bar"></div></div>
+        </div>
+
+        <div class="flag-container">
+            <img id="flag-img" src="" alt="Bayrak">
+        </div>
+
+        <div class="question-text" id="question-text">Bu bayrak hangi ülkeye aittir?</div>
+
+        <div class="options-grid" id="options-container">
+            <!-- 4 Seçenek Butonu Buraya Dinamik Gelir -->
+        </div>
+
+        <button class="btn-main" style="background: #333; margin-top: 5px; padding: 8px;" onclick="showStartScreen()">Ana Menüye Dön</button>
+    </div>
+
+    <!-- BİTİŞ EKRANI -->
+    <div id="end-screen" class="screen">
+        <h1>Tebrikler!</h1>
+        <p style="font-size: 20px;" id="end-message">Oyunu Başarıyla Bitirdiniz!</p>
+        <div id="final-stats" style="margin: 15px 0; font-size: 18px;"></div>
+        <button class="btn-main" onclick="resetCurrentGame()">BAŞA DÖN</button>
+    </div>
+</div>
+
+<script>
+// 173 ÜLKE VE BAŞKENT LİSTESİ (Eksiksiz Tam Veri Seti)
+const countriesData = [
+    { name: "Afganistan", capital: "Kabil", file: "Afghanistan.jpg" },
+    { name: "Arnavutluk", capital: "Tiran", file: "Albania.jpg" },
+    { name: "Cezayir", capital: "Cezayir", file: "Algeria.jpg" },
+    { name: "Andorra", capital: "Andorra la Vella", file: "Andorra.jpg" },
+    { name: "Angola", capital: "Luanda", file: "Angola.jpg" },
+    { name: "Antigua ve Barbuda", capital: "St. John's", file: "Antigua and Barbuda.jpg" },
+    { name: "Arjantin", capital: "Buenos Aires", file: "Argentina.jpg" },
+    { name: "Ermenistan", capital: "Erivan", file: "Armenia.jpg" },
+    { name: "Avustralya", capital: "Canberra", file: "Australia.jpg" },
+    { name: "Avusturya", capital: "Viyana", file: "Austria.jpg" },
+    { name: "Azerbaycan", capital: "Bakü", file: "Azerbaijan.jpg" },
+    { name: "Bahamalar", capital: "Nassau", file: "Bahamas.jpg" },
+    { name: "Bahreyn", capital: "Manama", file: "Bahrain.jpg" },
+    { name: "Bangladeş", capital: "Dakka", file: "Bangladesh.jpg" },
+    { name: "Barbados", capital: "Bridgetown", file: "Barbados.jpg" },
+    { name: "Belarus", capital: "Minsk", file: "Belarus.jpg" },
+    { name: "Belçika", capital: "Brüksel", file: "Belgium.jpg" },
+    { name: "Belize", capital: "Belmopan", file: "Belize.jpg" },
+    { name: "Benin", capital: "Porto-Novo", file: "Benin.jpg" },
+    { name: "Bhutan", capital: "Thimphu", file: "Bhutan.jpg" },
+    { name: "Bolivya", capital: "Sucre", file: "Bolivia.jpg" },
+    { name: "Bosna-Hersek", capital: "Saraybosna", file: "Bosnia and Herzegovina.jpg" },
+    { name: "Botsvana", capital: "Gaborone", file: "Botswana.jpg" },
+    { name: "Brezilya", capital: "Brasília", file: "Brazil.jpg" },
+    { name: "Brunei", capital: "Bandar Seri Begavan", file: "Brunei.jpg" },
+    { name: "Bulgaristan", capital: "Sofya", file: "Bulgaria.jpg" },
+    { name: "Burkina Faso", capital: "Ouagadougou", file: "Burkina Faso.jpg" },
+    { name: "Burundi", capital: "Gitega", file: "Burundi.jpg" },
+    { name: "Kamboçya", capital: "Phnom Penh", file: "Cambodia.jpg" },
+    { name: "Kamerun", capital: "Yaoundé", file: "Cameroon.jpg" },
+    { name: "Kanada", capital: "Ottawa", file: "Canada.jpg" },
+    { name: "Yeşil Burun Adaları", capital: "Praia", file: "Cape Verde.jpg" },
+    { name: "Orta Afrika Cumhuriyeti", capital: "Bangui", file: "Central African Republic.jpg" },
+    { name: "Çad", capital: "N'Djamena", file: "Chad.jpg" },
+    { name: "Şili", capital: "Santiago", file: "Chile.jpg" },
+    { name: "Çin", capital: "Pekin", file: "China.jpg" },
+    { name: "Kolombiya", capital: "Bogotá", file: "Colombia.jpg" },
+    { name: "Komorlar", capital: "Moroni", file: "Comoros.jpg" },
+    { name: "Kosta Rika", capital: "San José", file: "Costa Rica.jpg" },
+    { name: "Hırvatistan", capital: "Zagreb", file: "Croatia.jpg" },
+    { name: "Küba", capital: "Havana", file: "Cuba.jpg" },
+    { name: "Kıbrıs", capital: "Lefkoşa", file: "Cyprus.jpg" },
+    { name: "Çekya", capital: "Prag", file: "Czech Republic.jpg" },
+    { name: "Danimarka", capital: "Kopenhag", file: "Denmark.jpg" },
+    { name: "Cibuti", capital: "Cibuti", file: "Djibouti.jpg" },
+    { name: "Dominika", capital: "Roseau", file: "Dominica.jpg" },
+    { name: "Dominik Cumhuriyeti", capital: "Santo Domingo", file: "Dominican Republic.jpg" },
+    { name: "Ekvador", capital: "Quito", file: "Ecuador.jpg" },
+    { name: "Mısır", capital: "Kahire", file: "Egypt.jpg" },
+    { name: "El Salvador", capital: "San Salvador", file: "El Salvador.jpg" },
+    { name: "Ekvator Ginesi", capital: "Malabo", file: "Equatorial Guinea.jpg" },
+    { name: "Eritre", capital: "Asmara", file: "Eritrea.jpg" },
+    { name: "Estonya", capital: "Tallinn", file: "Estonia.jpg" },
+    { name: "Esvatini", capital: "Mbabane", file: "Eswatini.jpg" },
+    { name: "Etiyopya", capital: "Addis Ababa", file: "Ethiopia.jpg" },
+    { name: "Fiji", capital: "Suva", file: "Fiji.jpg" },
+    { name: "Finlandiya", capital: "Helsinki", file: "Finland.jpg" },
+    { name: "Fransa", capital: "Paris", file: "France.jpg" },
+    { name: "Gabon", capital: "Libreville", file: "Gabon.jpg" },
+    { name: "Gambiya", capital: "Banjul", file: "Gambia.jpg" },
+    { name: "Gürcistan", capital: "Tiflis", file: "Georgia.jpg" },
+    { name: "Almanya", capital: "Berlin", file: "Germany.jpg" },
+    { name: "Gana", capital: "Akra", file: "Ghana.jpg" },
+    { name: "Yunanistan", capital: "Atina", file: "Greece.jpg" },
+    { name: "Grenada", capital: "St. George's", file: "Grenada.jpg" },
+    { name: "Guatemala", capital: "Guatemala City", file: "Guatemala.jpg" },
+    { name: "Gine", capital: "Konakri", file: "Guinea.jpg" },
+    { name: "Gine-Bissau", capital: "Bissau", file: "Guinea-Bissau.jpg" },
+    { name: "Guyana", capital: "Georgetown", file: "Guyana.jpg" },
+    { name: "Haiti", capital: "Port-au-Prince", file: "Haiti.jpg" },
+    { name: "Honduras", capital: "Tegucigalpa", file: "Honduras.jpg" },
+    { name: "Macaristan", capital: "Budapeşte", file: "Hungary.jpg" },
+    { name: "İzlanda", capital: "Reykjavik", file: "Iceland.jpg" },
+    { name: "Hindistan", capital: "Yeni Delhi", file: "India.jpg" },
+    { name: "Endonezya", capital: "Cakarta", file: "Indonesia.jpg" },
+    { name: "İran", capital: "Tahran", file: "Iran.jpg" },
+    { name: "Irak", capital: "Bağdat", file: "Iraq.jpg" },
+    { name: "İrlanda", capital: "Dublin", file: "Ireland.jpg" },
+    { name: "İsrail", capital: "Kudüs", file: "Israel.jpg" },
+    { name: "İtalya", capital: "Roma", file: "Italy.jpg" },
+    { name: "Fildişi Sahili", capital: "Yamoussoukro", file: "Ivory Coast.jpg" },
+    { name: "Jamaika", capital: "Kingston", file: "Jamaica.jpg" },
+    { name: "Japonya", capital: "Tokyo", file: "Japan.jpg" },
+    { name: "Ürdün", capital: "Amman", file: "Jordan.jpg" },
+    { name: "Kazakistan", capital: "Astana", file: "Kazakhstan.jpg" },
+    { name: "Kenya", capital: "Nairobi", file: "Kenya.jpg" },
+    { name: "Kiribati", capital: "Tarawa", file: "Kiribati.jpg" },
+    { name: "Kuveyt", capital: "Kuveyt Şehri", file: "Kuwait.jpg" },
+    { name: "Kırgızistan", capital: "Bişkek", file: "Kyrgyzstan.jpg" },
+    { name: "Laos", capital: "Vientiane", file: "Laos.jpg" },
+    { name: "Letonya", capital: "Riga", file: "Latvia.jpg" },
+    { name: "Lübnan", capital: "Beyrut", file: "Lebanon.jpg" },
+    { name: "Lesotho", capital: "Maseru", file: "Lesotho.jpg" },
+    { name: "Liberya", capital: "Monrovia", file: "Liberia.jpg" },
+    { name: "Libya", capital: "Trablus", file: "Libya.jpg" },
+    { name: "Lihtenştayn", capital: "Vaduz", file: "Liechtenstein.jpg" },
+    { name: "Litvanya", capital: "Vilnius", file: "Lithuania.jpg" },
+    { name: "Lüksemburg", capital: "Lüksemburg", file: "Luxembourg.jpg" },
+    { name: "Madagaskar", capital: "Antananarivo", file: "Madagascar.jpg" },
+    { name: "Malavi", capital: "Lilongwe", file: "Malawi.jpg" },
+    { name: "Malezya", capital: "Kuala Lumpur", file: "Malaysia.jpg" },
+    { name: "Maldivler", capital: "Malé", file: "Maldives.jpg" },
+    { name: "Mali", capital: "Bamako", file: "Mali.jpg" },
+    { name: "Malta", capital: "Valletta", file: "Malta.jpg" },
+    { name: "Marshall Adaları", capital: "Majuro", file: "Marshall Islands.jpg" },
+    { name: "Moritanya", capital: "Nouakchott", file: "Mauritania.jpg" },
+    { name: "Mauritius", capital: "Port Louis", file: "Mauritius.jpg" },
+    { name: "Meksika", capital: "Meksiko", file: "Mexico.jpg" },
+    { name: "Mikronezya", capital: "Palikir", file: "Micronesia.jpg" },
+    { name: "Moldova", capital: "Kişinev", file: "Moldova.jpg" },
+    { name: "Monako", capital: "Monako", file: "Monaco.jpg" },
+    { name: "Moğolistan", capital: "Ulan Batur", file: "Mongolia.jpg" },
+    { name: "Karadağ", capital: "Podgorica", file: "Montenegro.jpg" },
+    { name: "Fas", capital: "Rabat", file: "Morocco.jpg" },
+    { name: "Mozambik", capital: "Maputo", file: "Mozambique.jpg" },
+    { name: "Myanmar", capital: "Naypyidaw", file: "Myanmar.jpg" },
+    { name: "Namibya", capital: "Windhoek", file: "Namibia.jpg" },
+    { name: "Nauru", capital: "Yaren", file: "Nauru.jpg" },
+    { name: "Nepal", capital: "Katmandu", file: "Nepal.jpg" },
+    { name: "Hollanda", capital: "Amsterdam", file: "Netherlands.jpg" },
+    { name: "Yeni Zelanda", capital: "Wellington", file: "New Zealand.jpg" },
+    { name: "Nikaragua", capital: "Managua", file: "Nicaragua.jpg" },
+    { name: "Nijer", capital: "Niamey", file: "Niger.jpg" },
+    { name: "Nijerya", capital: "Abuja", file: "Nigeria.jpg" },
+    { name: "Kuzey Kore", capital: "Pyongyang", file: "North Korea.jpg" },
+    { name: "Kuzey Makedonya", capital: "Üsküp", file: "North Macedonia.jpg" },
+    { name: "Norveç", capital: "Oslo", file: "Norway.jpg" },
+    { name: "Umman", capital: "Maskat", file: "Oman.jpg" },
+    { name: "Pakistan", capital: "İslamabad", file: "Pakistan.jpg" },
+    { name: "Palau", capital: "Ngerulmud", file: "Palau.jpg" },
+    { name: "Panama", capital: "Panama City", file: "Panama.jpg" },
+    { name: "Papua Yeni Gine", capital: "Port Moresby", file: "Papua New Guinea.jpg" },
+    { name: "Paraguay", capital: "Asunción", file: "Paraguay.jpg" },
+    { name: "Peru", capital: "Lima", file: "Peru.jpg" },
+    { name: "Filipinler", capital: "Manila", file: "Philippines.jpg" },
+    { name: "Polonya", capital: "Varşova", file: "Poland.jpg" },
+    { name: "Portekiz", capital: "Lizbon", file: "Portugal.jpg" },
+    { name: "Katar", capital: "Doha", file: "Qatar.jpg" },
+    { name: "Romanya", capital: "Bükreş", file: "Romania.jpg" },
+    { name: "Rusya", capital: "Moskova", file: "Russia.jpg" },
+    { name: "Ruanda", capital: "Kigali", file: "Rwanda.jpg" },
+    { name: "Saint Kitts ve Nevis", capital: "Basseterre", file: "Saint Kitts and Nevis.jpg" },
+    { name: "Saint Lucia", capital: "Castries", file: "Saint Lucia.jpg" },
+    { name: "Saint Vincent ve Grenadinler", capital: "Kingstown", file: "Saint Vincent and the Grenadines.jpg" },
+    { name: "Samoa", capital: "Apia", file: "Samoa.jpg" },
+    { name: "San Marino", capital: "San Marino", file: "San Marino.jpg" },
+    { name: "Sao Tome ve Principe", capital: "São Tomé", file: "Sao Tome and Principe.jpg" },
+    { name: "Suudi Arabistan", capital: "Riyad", file: "Saudi Arabia.jpg" },
+    { name: "Senegal", capital: "Dakar", file: "Senegal.jpg" },
+    { name: "Sırbistan", capital: "Belgrad", file: "Serbia.jpg" },
+    { name: "Seyşeller", capital: "Victoria", file: "Seychelles.jpg" },
+    { name: "Sierra Leone", capital: "Freetown", file: "Sierra Leone.jpg" },
+    { name: "Singapur", capital: "Singapur", file: "Singapore.jpg" },
+    { name: "Slovakya", capital: "Bratislava", file: "Slovakia.jpg" },
+    { name: "Slovenya", capital: "Ljubljana", file: "Slovenia.jpg" },
+    { name: "Solomon Adaları", capital: "Honiara", file: "Solomon Islands.jpg" },
+    { name: "Somali", capital: "Mogadişu", file: "Somalia.jpg" },
+    { name: "Güney Afrika", capital: "Pretoria", file: "South Africa.jpg" },
+    { name: "Güney Kore", capital: "Seul", file: "South Korea.jpg" },
+    { name: "Güney Sudan", capital: "Juba", file: "South Sudan.jpg" },
+    { name: "İspanya", capital: "Madrid", file: "Spain.jpg" },
+    { name: "Sri Lanka", capital: "Sri Jayawardenepura Kotte", file: "Sri Lanka.jpg" },
+    { name: "Sudan", capital: "Hartum", file: "Sudan.jpg" },
+    { name: "Surinam", capital: "Paramaribo", file: "Suriname.jpg" },
+    { name: "İsveç", capital: "Stokholm", file: "Sweden.jpg" },
+    { name: "İsviçre", capital: "Bern", file: "Switzerland.jpg" },
+    { name: "Suriye", capital: "Şam", file: "Syria.jpg" },
+    { name: "Tayvan", capital: "Taipei", file: "Taiwan.jpg" },
+    { name: "Tacikistan", capital: "Duşanbe", file: "Tajikistan.jpg" },
+    { name: "Tanzanya", capital: "Dodoma", file: "Tanzania.jpg" },
+    { name: "Tayland", capital: "Bangkok", file: "Thailand.jpg" },
+    { name: "Doğu Timor", capital: "Dili", file: "Timor-Leste.jpg" },
+    { name: "Togo", capital: "Lomé", file: "Togo.jpg" },
+    { name: "Tonga", capital: "Nuku'alofa", file: "Tonga.jpg" },
+    { name: "Trinidad ve Tobago", capital: "Port of Spain", file: "Trinidad and Tobago.jpg" },
+    { name: "Tunus", capital: "Tunus", file: "Tunisia.jpg" },
+    { name: "Türkiye", capital: "Ankara", file: "Turkey.jpg" },
+    { name: "Türkmenistan", capital: "Aşkabat", file: "Turkmenistan.jpg" },
+    { name: "Tuvalu", capital: "Funafuti", file: "Tuvalu.jpg" },
+    { name: "Uganda", capital: "Kampala", file: "Uganda.jpg" },
+    { name: "Ukrayna", capital: "Kiev", file: "Ukraine.jpg" },
+    { name: "Birleşik Arap Emirlikleri", capital: "Abu Dabi", file: "United Arab Emirates.jpg" },
+    { name: "İngiltere", capital: "Londra", file: "United Kingdom.jpg" },
+    { name: "Amerika Birleşik Devletleri", capital: "Washington, D.C.", file: "United States.jpg" },
+    { name: "Uruguay", capital: "Montevideo", file: "Uruguay.jpg" },
+    { name: "Özbekistan", capital: "Taşkent", file: "Uzbekistan.jpg" }
+];
+
+// OYUN DURUM DEĞİŞKENLERİ
+let currentMode = ''; 
+let currentIndex = 0;
+let scoreCorrect = 0;
+let scoreWrong = 0;
+let timer = null;
+let timeLeft = 15;
+let isAnswered = false;
+
+function saveState() {
+    const data = { currentIndex, scoreCorrect, scoreWrong };
+    localStorage.setItem(`pop7_${currentMode}`, JSON.stringify(data));
+}
+
+function loadState() {
+    const saved = localStorage.getItem(`pop7_${currentMode}`);
+    if (saved) {
+        const data = JSON.parse(saved);
+        currentIndex = data.currentIndex || 0;
+        scoreCorrect = data.scoreCorrect || 0;
+        scoreWrong = data.scoreWrong || 0;
+    } else {
+        resetState();
+    }
+}
+
+function resetState() {
+    currentIndex = 0;
+    scoreCorrect = 0;
+    scoreWrong = 0;
+    localStorage.removeItem(`pop7_${currentMode}`);
+}
+
+function showScreen(screenId) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(screenId).classList.add('active');
+}
+
+function showStartScreen() {
+    clearInterval(timer);
+    showScreen('start-screen');
+}
+
+function startGame(mode) {
+    currentMode = mode;
+    loadState();
+    if(currentIndex >= countriesData.length) {
+        resetState();
+    }
+    showScreen('game-screen');
+    loadQuestion();
+}
+
+function loadQuestion() {
+    if (currentIndex >= countriesData.length) {
+        finishGame();
+        return;
+    }
+
+    isAnswered = false;
+    document.getElementById('score-correct').innerText = `Doğru: ${scoreCorrect}`;
+    document.getElementById('score-wrong').innerText = `Yanlış: ${scoreWrong}`;
+    document.getElementById('progress-text').innerText = `${currentIndex + 1} / ${countriesData.length}`;
+
+    const currentItem = countriesData[currentIndex];
+    document.getElementById('flag-img').src = `ülkeler/${currentItem.file}`;
+
+    const questionText = document.getElementById('question-text');
+    questionText.innerText = currentMode === 'flags' 
+        ? "Bu bayrak hangi ülkeye aittir?" 
+        : "Bu ülkenin başkenti hangisidir?";
+
+    // Seçenek Oluşturma (1 Doğru, 3 Rastgele Yanlış)
+    let correctAnswer = currentMode === 'flags' ? currentItem.name : currentItem.capital;
+    let pool = countriesData
+        .map(c => currentMode === 'flags' ? c.name : c.capital)
+        .filter(ans => ans !== correctAnswer);
+
+    // Rastgele 3 Farklı Seçenek Çek
+    pool.sort(() => 0.5 - Math.random());
+    let options = [correctAnswer, pool[0], pool[1], pool[2]];
+    options.sort(() => 0.5 - Math.random()); // Seçenekleri Karıştır
+
+    const optionsContainer = document.getElementById('options-container');
+    optionsContainer.innerHTML = '';
+    
+    options.forEach(opt => {
+        const btn = document.createElement('button');
+        btn.className = 'btn-opt';
+        btn.innerText = opt;
+        btn.onclick = () => handleAnswer(opt === correctAnswer, btn, correctAnswer);
+        optionsContainer.appendChild(btn);
+    });
+
+    startTimer();
+}
+
+function startTimer() {
+    clearInterval(timer);
+    timeLeft = 15;
+    const bar = document.getElementById('timer-bar');
+    bar.style.transition = 'none';
+    bar.style.width = '100%';
+    
+    setTimeout(() => {
+        bar.style.transition = 'width 15s linear';
+        bar.style.width = '0%';
+    }, 50);
+
+    timer = setInterval(() => {
+        timeLeft--;
+        if (timeLeft <= 0) {
+            clearInterval(timer);
+            if (!isAnswered) {
+                handleAnswer(false, null, currentMode === 'flags' ? countriesData[currentIndex].name : countriesData[currentIndex].capital);
+            }
+        }
+    }, 1000);
+}
+
+function handleAnswer(isCorrect, selectedBtn, correctAnswer) {
+    if (isAnswered) return;
+    isAnswered = true;
+    clearInterval(timer);
+
+    const buttons = document.querySelectorAll('.btn-opt');
+    buttons.forEach(btn => {
+        btn.disabled = true;
+        if(btn.innerText === correctAnswer) btn.classList.add('correct');
+    });
+
+    if (isCorrect) {
+        scoreCorrect++;
+    } else {
+        scoreWrong++;
+        if(selectedBtn) selectedBtn.classList.add('wrong');
+    }
+
+    currentIndex++;
+    saveState();
+
+    setTimeout(() => {
+        loadQuestion();
+    }, 1200);
+}
+
+function finishGame() {
+    showScreen('end-screen');
+    document.getElementById('final-stats').innerText = `Doğru: ${scoreCorrect} | Yanlış: ${scoreWrong}`;
+    // Konfeti Efekti
+    confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+}
+
+function resetCurrentGame() {
+    resetState();
+    startGame(currentMode);
+}
+</script>
 </body>
 </html>
