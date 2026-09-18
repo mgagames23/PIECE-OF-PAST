@@ -295,6 +295,10 @@ let timer = null;
 let timeLeft = 15;
 let isAnswered = false;
 
+// TIMER DURUM DEĞİŞKENLERİ
+let gamePaused = false;
+let timerEndAt = 0;
+
 function saveState() {
     const data = { currentIndex, scoreCorrect, scoreWrong };
     localStorage.setItem(`pop7_${currentMode}`, JSON.stringify(data));
@@ -326,15 +330,21 @@ function showScreen(screenId) {
 
 function showStartScreen() {
     clearInterval(timer);
+    timer = null;
+    timerEndAt = 0;
+    gamePaused = false;
     showScreen('start-screen');
 }
 
 function startGame(mode) {
     currentMode = mode;
     loadState();
+
     if(currentIndex >= countriesData.length) {
         resetState();
     }
+
+    gamePaused = document.hidden;
     showScreen('game-screen');
     loadQuestion();
 }
@@ -345,7 +355,12 @@ function loadQuestion() {
         return;
     }
 
+    clearInterval(timer);
+    timer = null;
+    timerEndAt = 0;
+
     isAnswered = false;
+
     document.getElementById('score-correct').innerText = `Doğru: ${scoreCorrect}`;
     document.getElementById('score-wrong').innerText = `Yanlış: ${scoreWrong}`;
     document.getElementById('progress-text').innerText = `${currentIndex + 1} / ${countriesData.length}`;
@@ -367,7 +382,7 @@ function loadQuestion() {
     // Rastgele 3 Farklı Seçenek Çek
     pool.sort(() => 0.5 - Math.random());
     let options = [correctAnswer, pool[0], pool[1], pool[2]];
-    options.sort(() => 0.5 - Math.random()); // Seçenekleri Karıştır
+    options.sort(() => 0.5 - Math.random());
 
     const optionsContainer = document.getElementById('options-container');
     optionsContainer.innerHTML = '';
@@ -380,48 +395,213 @@ function loadQuestion() {
         optionsContainer.appendChild(btn);
     });
 
-    startTimer();
+    gamePaused = document.hidden;
+
+    if (!gamePaused) {
+        startTimer();
+    } else {
+        timeLeft = 15;
+        updateTimerBar();
+    }
+}
+
+function updateTimerBar() {
+    const bar = document.getElementById('timer-bar');
+
+    if (!bar) return;
+
+    const percentage = Math.max(0, Math.min(100, (timeLeft / 15) * 100));
+
+    bar.style.transition = 'none';
+    bar.style.width = `${percentage}%`;
 }
 
 function startTimer() {
     clearInterval(timer);
+    timer = null;
+
+    if (gamePaused || document.hidden || isAnswered) {
+        updateTimerBar();
+        return;
+    }
+
     timeLeft = 15;
+    timerEndAt = Date.now() + (timeLeft * 1000);
+
     const bar = document.getElementById('timer-bar');
+
     bar.style.transition = 'none';
     bar.style.width = '100%';
-    
+
     setTimeout(() => {
+        if (gamePaused || document.hidden || isAnswered) return;
+
         bar.style.transition = 'width 15s linear';
         bar.style.width = '0%';
     }, 50);
 
     timer = setInterval(() => {
-        timeLeft--;
+        if (gamePaused || document.hidden || isAnswered) {
+            clearInterval(timer);
+            timer = null;
+            return;
+        }
+
+        timeLeft = Math.max(0, Math.ceil((timerEndAt - Date.now()) / 1000));
+
         if (timeLeft <= 0) {
             clearInterval(timer);
+            timer = null;
+            timeLeft = 0;
+
             if (!isAnswered) {
-                handleAnswer(false, null, currentMode === 'flags' ? countriesData[currentIndex].name : countriesData[currentIndex].capital);
+                handleAnswer(
+                    false,
+                    null,
+                    currentMode === 'flags'
+                        ? countriesData[currentIndex].name
+                        : countriesData[currentIndex].capital
+                );
             }
         }
-    }, 1000);
+    }, 200);
+}
+
+function pauseTimer() {
+    if (isAnswered) return;
+
+    if (timerEndAt > 0) {
+        timeLeft = Math.max(0, Math.ceil((timerEndAt - Date.now()) / 1000));
+    }
+
+    clearInterval(timer);
+    timer = null;
+
+    gamePaused = true;
+
+    updateTimerBar();
+    saveState();
+}
+
+function resumeTimer() {
+    if (!gamePaused || isAnswered) return;
+
+    gamePaused = false;
+
+    if (timeLeft <= 0) {
+        timeLeft = 0;
+
+        if (!isAnswered) {
+            handleAnswer(
+                false,
+                null,
+                currentMode === 'flags'
+                    ? countriesData[currentIndex].name
+                    : countriesData[currentIndex].capital
+            );
+        }
+
+        return;
+    }
+
+    clearInterval(timer);
+    timer = null;
+
+    timerEndAt = Date.now() + (timeLeft * 1000);
+
+    const bar = document.getElementById('timer-bar');
+
+    if (bar) {
+        const remainingPercentage = Math.max(0, Math.min(100, (timeLeft / 15) * 100));
+
+        bar.style.transition = 'none';
+        bar.style.width = `${remainingPercentage}%`;
+
+        setTimeout(() => {
+            if (gamePaused || document.hidden || isAnswered) return;
+
+            const currentPercentage = Math.max(
+                0,
+                Math.min(100, (timeLeft / 15) * 100)
+            );
+
+            bar.style.transition = `width ${timeLeft}s linear`;
+            bar.style.width = '0%';
+        }, 50);
+    }
+
+    timer = setInterval(() => {
+        if (gamePaused || document.hidden || isAnswered) {
+            clearInterval(timer);
+            timer = null;
+            return;
+        }
+
+        timeLeft = Math.max(0, Math.ceil((timerEndAt - Date.now()) / 1000));
+
+        const currentPercentage = Math.max(
+            0,
+            Math.min(100, (timeLeft / 15) * 100)
+        );
+
+        if (bar) {
+            bar.style.transition = 'none';
+            bar.style.width = `${currentPercentage}%`;
+
+            requestAnimationFrame(() => {
+                if (!gamePaused && !document.hidden && !isAnswered) {
+                    bar.style.transition = 'width 0.25s linear';
+                    bar.style.width = `${currentPercentage}%`;
+                }
+            });
+        }
+
+        if (timeLeft <= 0) {
+            clearInterval(timer);
+            timer = null;
+            timeLeft = 0;
+
+            if (!isAnswered) {
+                handleAnswer(
+                    false,
+                    null,
+                    currentMode === 'flags'
+                        ? countriesData[currentIndex].name
+                        : countriesData[currentIndex].capital
+                );
+            }
+        }
+    }, 200);
 }
 
 function handleAnswer(isCorrect, selectedBtn, correctAnswer) {
     if (isAnswered) return;
+
     isAnswered = true;
+
     clearInterval(timer);
+    timer = null;
+    timerEndAt = 0;
+    gamePaused = false;
 
     const buttons = document.querySelectorAll('.btn-opt');
+
     buttons.forEach(btn => {
         btn.disabled = true;
-        if(btn.innerText === correctAnswer) btn.classList.add('correct');
+
+        if(btn.innerText === correctAnswer) {
+            btn.classList.add('correct');
+        }
     });
 
     if (isCorrect) {
         scoreCorrect++;
     } else {
         scoreWrong++;
-        if(selectedBtn) selectedBtn.classList.add('wrong');
+
+        if(selectedBtn) {
+            selectedBtn.classList.add('wrong');
+        }
     }
 
     currentIndex++;
@@ -433,16 +613,52 @@ function handleAnswer(isCorrect, selectedBtn, correctAnswer) {
 }
 
 function finishGame() {
+    clearInterval(timer);
+    timer = null;
+    timerEndAt = 0;
+    gamePaused = false;
+
     showScreen('end-screen');
     document.getElementById('final-stats').innerText = `Doğru: ${scoreCorrect} | Yanlış: ${scoreWrong}`;
+
     // Konfeti Efekti
     confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
 }
 
 function resetCurrentGame() {
+    clearInterval(timer);
+    timer = null;
+    timerEndAt = 0;
+    gamePaused = false;
+
     resetState();
     startGame(currentMode);
 }
+
+// UYGULAMA ARKA PLANA ALINDIĞINDA TIMER'I DURDUR
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        const gameScreen = document.getElementById('game-screen');
+
+        if (
+            gameScreen &&
+            gameScreen.classList.contains('active') &&
+            !isAnswered
+        ) {
+            pauseTimer();
+        }
+    } else {
+        const gameScreen = document.getElementById('game-screen');
+
+        if (
+            gameScreen &&
+            gameScreen.classList.contains('active') &&
+            !isAnswered
+        ) {
+            resumeTimer();
+        }
+    }
+});
 </script>
 </body>
 </html>
