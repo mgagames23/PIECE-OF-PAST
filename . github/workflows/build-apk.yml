@@ -1,0 +1,114 @@
+name: Build PIECE OF PAST 7 APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Repository'yi indir
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Node.js 22
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # 3. Java 21
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # 4. NPM paketlerini kur
+      - name: Install dependencies
+        run: npm install
+
+      # 5. Android platformunu oluştur
+      - name: Add Android platform
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+
+      # 6. Web dosyalarını Android projesine aktar
+      - name: Capacitor sync
+        run: npx cap sync android
+
+      # 7. Android launcher ikonlarını android-icons klasöründen kopyala
+      - name: Install custom launcher icons
+        run: |
+          echo "Installing custom Piece Of Past 7 launcher icons..."
+
+          mkdir -p android/app/src/main/res/mipmap-mdpi
+          mkdir -p android/app/src/main/res/mipmap-hdpi
+          mkdir -p android/app/src/main/res/mipmap-xhdpi
+          mkdir -p android/app/src/main/res/mipmap-xxhdpi
+          mkdir -p android/app/src/main/res/mipmap-xxxhdpi
+
+          cp android-icons/mipmap-mdpi/ic_launcher.png \
+             android/app/src/main/res/mipmap-mdpi/ic_launcher.png
+
+          cp android-icons/mipmap-hdpi/ic_launcher.png \
+             android/app/src/main/res/mipmap-hdpi/ic_launcher.png
+
+          cp android-icons/mipmap-xhdpi/ic_launcher.png \
+             android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+
+          cp android-icons/mipmap-xxhdpi/ic_launcher.png \
+             android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+
+          cp android-icons/mipmap-xxxhdpi/ic_launcher.png \
+             android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+
+          # Yuvarlak launcher ikonunu da aynı görsellerle kullan
+          cp android-icons/mipmap-mdpi/ic_launcher.png \
+             android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png
+
+          cp android-icons/mipmap-hdpi/ic_launcher.png \
+             android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png
+
+          cp android-icons/mipmap-xhdpi/ic_launcher.png \
+             android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png
+
+          cp android-icons/mipmap-xxhdpi/ic_launcher.png \
+             android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
+
+          cp android-icons/mipmap-xxxhdpi/ic_launcher.png \
+             android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
+
+          echo "Launcher icons installed successfully."
+
+      # 8. Adaptive icon kaynaklarının PNG ikonun üzerine yazmasını engelle
+      - name: Remove conflicting adaptive launcher icons
+        run: |
+          rm -f android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          rm -f android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+
+          rm -f android/app/src/main/res/mipmap-anydpi/ic_launcher.xml
+          rm -f android/app/src/main/res/mipmap-anydpi/ic_launcher_round.xml
+
+      # 9. Android APK oluştur
+      - name: Build Debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      # 10. APK'yı GitHub Actions artifact olarak yükle
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: piece of past 7-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
