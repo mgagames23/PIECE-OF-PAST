@@ -58,7 +58,7 @@
         <div style="width: 100%;">
             <div class="hud">
                 <span id="score-correct" style="color: #4caf50; font-weight: bold;">Doğru: 0</span>
-                <span id="progress-text">1 / 173</span>
+                <span id="progress-text">1 / 195</span>
                 <span id="score-wrong" style="color: #ef5350; font-weight: bold;">Yanlış: 0</span>
             </div>
             <div class="timer-bar-bg"><div id="timer-bar" class="timer-bar"></div></div>
@@ -87,7 +87,7 @@
 </div>
 
 <script>
-// 173 ÜLKE VE BAŞKENT LİSTESİ (Eksiksiz Tam Veri Seti)
+// 195 ÜLKE VE BAŞKENT LİSTESİ
 const countriesData = [
     { name: "Afganistan", capital: "Kabil", file: "Afghanistan.jpg" },
     { name: "Arnavutluk", capital: "Tiran", file: "Albania.jpg" },
@@ -100,7 +100,6 @@ const countriesData = [
     { name: "Avustralya", capital: "Canberra", file: "Australia.jpg" },
     { name: "Avusturya", capital: "Viyana", file: "Austria.jpg" },
     { name: "Azerbaycan", capital: "Bakü", file: "Azerbaijan.jpg" },
-    { name: "Bahamalar", capital: "Nassau", file: "Bahamas.jpg" },
     { name: "Bahreyn", capital: "Manama", file: "Bahrain.jpg" },
     { name: "Bangladeş", capital: "Dakka", file: "Bangladesh.jpg" },
     { name: "Barbados", capital: "Bridgetown", file: "Barbados.jpg" },
@@ -108,30 +107,30 @@ const countriesData = [
     { name: "Belçika", capital: "Brüksel", file: "Belgium.jpg" },
     { name: "Belize", capital: "Belmopan", file: "Belize.jpg" },
     { name: "Benin", capital: "Porto-Novo", file: "Benin.jpg" },
-    { name: "Bhutan", capital: "Thimphu", file: "Bhutan.jpg" },
     { name: "Bolivya", capital: "Sucre", file: "Bolivia.jpg" },
     { name: "Bosna-Hersek", capital: "Saraybosna", file: "Bosnia and Herzegovina.jpg" },
     { name: "Botsvana", capital: "Gaborone", file: "Botswana.jpg" },
     { name: "Brezilya", capital: "Brasília", file: "Brazil.jpg" },
-    { name: "Brunei", capital: "Bandar Seri Begavan", file: "Brunei.jpg" },
     { name: "Bulgaristan", capital: "Sofya", file: "Bulgaria.jpg" },
     { name: "Burkina Faso", capital: "Ouagadougou", file: "Burkina Faso.jpg" },
-    { name: "Burundi", capital: "Gitega", file: "Burundi.jpg" },
+    { name: "Yeşil Burun Adaları", capital: "Praia", file: "Cabo Verde.jpg" },
     { name: "Kamboçya", capital: "Phnom Penh", file: "Cambodia.jpg" },
     { name: "Kamerun", capital: "Yaoundé", file: "Cameroon.jpg" },
     { name: "Kanada", capital: "Ottawa", file: "Canada.jpg" },
-    { name: "Yeşil Burun Adaları", capital: "Praia", file: "Cape Verde.jpg" },
     { name: "Orta Afrika Cumhuriyeti", capital: "Bangui", file: "Central African Republic.jpg" },
     { name: "Çad", capital: "N'Djamena", file: "Chad.jpg" },
     { name: "Şili", capital: "Santiago", file: "Chile.jpg" },
     { name: "Çin", capital: "Pekin", file: "China.jpg" },
     { name: "Kolombiya", capital: "Bogotá", file: "Colombia.jpg" },
     { name: "Komorlar", capital: "Moroni", file: "Comoros.jpg" },
+    { name: "Kongo Cumhuriyeti", capital: "Brazzaville", file: "Congo.jpg" },
     { name: "Kosta Rika", capital: "San José", file: "Costa Rica.jpg" },
     { name: "Hırvatistan", capital: "Zagreb", file: "Croatia.jpg" },
     { name: "Küba", capital: "Havana", file: "Cuba.jpg" },
     { name: "Kıbrıs", capital: "Lefkoşa", file: "Cyprus.jpg" },
-    { name: "Çekya", capital: "Prag", file: "Czech Republic.jpg" },
+    { name: "Çekya", capital: "Prag", file: "Czechia.jpg" },
+    { name: "Fildişi Sahili", capital: "Yamoussoukro", file: "Côte d'Ivoire.jpg" },
+    { name: "Demokratik Kongo Cumhuriyeti", capital: "Kinşasa", file: "Democratic Republic of the Congo.jpg" },
     { name: "Danimarka", capital: "Kopenhag", file: "Denmark.jpg" },
     { name: "Cibuti", capital: "Cibuti", file: "Djibouti.jpg" },
     { name: "Dominika", capital: "Roseau", file: "Dominica.jpg" },
@@ -159,6 +158,7 @@ const countriesData = [
     { name: "Gine-Bissau", capital: "Bissau", file: "Guinea-Bissau.jpg" },
     { name: "Guyana", capital: "Georgetown", file: "Guyana.jpg" },
     { name: "Haiti", capital: "Port-au-Prince", file: "Haiti.jpg" },
+    { name: "Bhutan", capital: "Thimphu", file: "Bhutan.jpg" },
     { name: "Honduras", capital: "Tegucigalpa", file: "Honduras.jpg" },
     { name: "Macaristan", capital: "Budapeşte", file: "Hungary.jpg" },
     { name: "İzlanda", capital: "Reykjavik", file: "Iceland.jpg" },
@@ -169,7 +169,6 @@ const countriesData = [
     { name: "İrlanda", capital: "Dublin", file: "Ireland.jpg" },
     { name: "İsrail", capital: "Kudüs", file: "Israel.jpg" },
     { name: "İtalya", capital: "Roma", file: "Italy.jpg" },
-    { name: "Fildişi Sahili", capital: "Yamoussoukro", file: "Ivory Coast.jpg" },
     { name: "Jamaika", capital: "Kingston", file: "Jamaica.jpg" },
     { name: "Japonya", capital: "Tokyo", file: "Japan.jpg" },
     { name: "Ürdün", capital: "Amman", file: "Jordan.jpg" },
@@ -251,12 +250,12 @@ const countriesData = [
     { name: "Güney Sudan", capital: "Juba", file: "South Sudan.jpg" },
     { name: "İspanya", capital: "Madrid", file: "Spain.jpg" },
     { name: "Sri Lanka", capital: "Sri Jayawardenepura Kotte", file: "Sri Lanka.jpg" },
+    { name: "Filistin", capital: "Doğu Kudüs", file: "State of Palestine.jpg" },
     { name: "Sudan", capital: "Hartum", file: "Sudan.jpg" },
     { name: "Surinam", capital: "Paramaribo", file: "Suriname.jpg" },
     { name: "İsveç", capital: "Stokholm", file: "Sweden.jpg" },
     { name: "İsviçre", capital: "Bern", file: "Switzerland.jpg" },
     { name: "Suriye", capital: "Şam", file: "Syria.jpg" },
-    { name: "Tayvan", capital: "Taipei", file: "Taiwan.jpg" },
     { name: "Tacikistan", capital: "Duşanbe", file: "Tajikistan.jpg" },
     { name: "Tanzanya", capital: "Dodoma", file: "Tanzania.jpg" },
     { name: "Tayland", capital: "Bangkok", file: "Thailand.jpg" },
@@ -265,8 +264,8 @@ const countriesData = [
     { name: "Tonga", capital: "Nuku'alofa", file: "Tonga.jpg" },
     { name: "Trinidad ve Tobago", capital: "Port of Spain", file: "Trinidad and Tobago.jpg" },
     { name: "Tunus", capital: "Tunus", file: "Tunisia.jpg" },
-    { name: "Türkiye", capital: "Ankara", file: "Turkey.jpg" },
     { name: "Türkmenistan", capital: "Aşkabat", file: "Turkmenistan.jpg" },
+    { name: "Türkiye", capital: "Ankara", file: "Türkiye.jpg" },
     { name: "Tuvalu", capital: "Funafuti", file: "Tuvalu.jpg" },
     { name: "Uganda", capital: "Kampala", file: "Uganda.jpg" },
     { name: "Ukrayna", capital: "Kiev", file: "Ukraine.jpg" },
@@ -274,7 +273,17 @@ const countriesData = [
     { name: "İngiltere", capital: "Londra", file: "United Kingdom.jpg" },
     { name: "Amerika Birleşik Devletleri", capital: "Washington, D.C.", file: "United States.jpg" },
     { name: "Uruguay", capital: "Montevideo", file: "Uruguay.jpg" },
-    { name: "Özbekistan", capital: "Taşkent", file: "Uzbekistan.jpg" }
+    { name: "Özbekistan", capital: "Taşkent", file: "Uzbekistan.jpg" },
+    { name: "Vanuatu", capital: "Port Vila", file: "Vanuatu.jpg" },
+    { name: "Venezuela", capital: "Caracas", file: "Venezuela.jpg" },
+    { name: "Vietnam", capital: "Hanoi", file: "Vietnam.jpg" },
+    { name: "Yemen", capital: "Sana", file: "Yemen.jpg" },
+    { name: "Zambiya", capital: "Lusaka", file: "Zambia.jpg" },
+    { name: "Zimbabve", capital: "Harare", file: "Zimbabwe.jpg" },
+    { name: "Vatikan", capital: "Vatikan", file: "Vatican City.jpg" },
+    { name: "Brunei", capital: "Bandar Seri Begavan", file: "Brunei.jpg" },
+    { name: "Burundi", capital: "Gitega", file: "Burundi.jpg" },
+    { name: "Bahamalar", capital: "Nassau", file: "Bahamas.jpg" }
 ];
 
 // OYUN DURUM DEĞİŞKENLERİ
